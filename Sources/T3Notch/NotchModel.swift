@@ -94,15 +94,21 @@ final class NotchModel: ObservableObject {
         return .idle
     }
 
-    /// Rows in the open list: the inbox, as many as fit; the footer counts the rest.
+    /// Rows in the open list: the inbox, as many as fit; the footer counts the rest. The row
+    /// being replied to always keeps its place (with its reply field); others make room for it.
     var listThreads: [T3Thread] {
+        // Without the command-output peek: that height depends on the selection, which depends
+        // on these rows. Inbox threads aren't running anyway.
+        let inbox = store.inbox
         var room = Self.maxHeight - listTop - Self.footerHeight - 14 - (keyboard ? Self.hintsHeight : 0)
+        let target = inbox.first { $0.id == replyingTo }
+        if let target { room -= baseHeight(target) + Self.replyHeight }
         var out: [T3Thread] = []
-        for t in store.inbox {
-            // Without the command-output peek: that height depends on the selection, which
-            // depends on these rows. Inbox threads aren't running anyway.
-            room -= baseHeight(t) + (replyingTo == t.id ? Self.replyHeight : 0)
-            if room < 0 { break }
+        var full = false
+        for t in inbox {
+            if t.id == target?.id { out.append(t); continue }
+            guard !full, room - baseHeight(t) >= 0 else { full = true; continue }
+            room -= baseHeight(t)
             out.append(t)
         }
         return out

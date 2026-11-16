@@ -518,11 +518,16 @@ final class ThreadStore: ObservableObject {
         // reshuffle. Order by when their run started instead (stable).
         func started(_ t: ShellThread) -> Date { t.startedAt ?? t.updatedAt }
         let working = busy.sorted { started($0) != started($1) ? started($0) > started($1) : $0.id < $1.id }
-        let visible = Array(inbox.prefix(Self.inboxCount)) + working.prefix(Self.busyCount)
+        detectTransitions(awake)
+        var visible = Array(inbox.prefix(Self.inboxCount)) + working.prefix(Self.busyCount)
+        // A pop-up's thread stays followed until it goes away, even if it's no row: a finish you
+        // already saw in T3 resolves to idle, but still gets its few seconds.
+        if let id = eventId, !visible.contains(where: { $0.id == id }), let t = awake.first(where: { $0.id == id }) {
+            visible.append(t)
+        }
 
         syncDetailSubscriptions(Set(visible.map(\.id)))
         fetchEditCounts(visible)
-        detectTransitions(awake)
 
         var rows = visible.map(row)
         if !Self.demo.threads.isEmpty {
