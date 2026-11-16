@@ -141,7 +141,9 @@ final class ThreadStore: ObservableObject {
     var needsYou: [T3Thread] { threads.filter { $0.status.needsYou } }
     var active: [T3Thread] { threads.filter { $0.status.isActive } }
     /// The open list: only threads waiting on you (needs you, plan ready, failed, done unread).
-    var inbox: [T3Thread] { threads.filter { NotchSummary.kind(of: $0.status) != nil } }
+    var inbox: [T3Thread] { threads.filter { inboxIds.contains($0.id) } }
+    /// Which of `threads` the list shows (the rest are followed for work or a pop-up).
+    private var inboxIds: Set<String> = []
     /// Waiting threads that didn't get a row.
     var inboxOverflow: Int { max(0, summary.attention - inbox.count) }
     var event: T3Thread? { eventId.flatMap { id in threads.first { $0.id == id } } }
@@ -519,7 +521,8 @@ final class ThreadStore: ObservableObject {
         func started(_ t: ShellThread) -> Date { t.startedAt ?? t.updatedAt }
         let working = busy.sorted { started($0) != started($1) ? started($0) > started($1) : $0.id < $1.id }
         detectTransitions(awake)
-        var visible = Array(inbox.prefix(Self.inboxCount)) + working.prefix(Self.busyCount)
+        let listed = Array(inbox.prefix(Self.inboxCount))
+        var visible = listed + working.prefix(Self.busyCount)
         // A pop-up's thread stays followed until it goes away, even if it's no row: a finish you
         // already saw in T3 resolves to idle, but still gets its few seconds.
         if let id = eventId, !visible.contains(where: { $0.id == id }), let t = awake.first(where: { $0.id == id }) {
@@ -530,15 +533,18 @@ final class ThreadStore: ObservableObject {
         fetchEditCounts(visible)
 
         var rows = visible.map(row)
+        var listedIds = Set(listed.map(\.id))
         if !Self.demo.threads.isEmpty {
             // Demo shows only fake threads, so screenshots never include real work.
             rows = Self.demo.threads
             summary = NotchSummary(snoozed: 2, settled: 14)
             rows.forEach { summary.add($0.status) }
+            listedIds = Set(rows.filter { NotchSummary.kind(of: $0.status) != nil }.map(\.id))
             // Once, through the live path: a finish goes back to the pill after 7s, a card can be put away.
             if let id = Self.demo.eventId, threads.isEmpty, let t = rows.first(where: { $0.id == id }) { showEvent(t) }
         }
         if summary != self.summary { self.summary = summary }
+        if listedIds != inboxIds { objectWillChange.send(); inboxIds = listedIds }
         if rows != threads { threads = rows }
     }
 
