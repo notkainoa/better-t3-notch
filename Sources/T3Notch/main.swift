@@ -77,6 +77,8 @@ final class NotchController {
             if key != self.lastRenderKey {
                 self.lastRenderKey = key
                 self.root.refresh() // collapsed: only when something visible changed
+                // The pill may have grown under a cursor that isn't moving: make it clickable now.
+                self.updateHover(NSEvent.mouseLocation)
             }
         }.store(in: &cancellables)
         // Hover, keyboard, reply, mode: reshape (spring) and mount/unmount the list or card.
