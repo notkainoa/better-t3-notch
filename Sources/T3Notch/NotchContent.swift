@@ -25,18 +25,6 @@ enum UI {
         return base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
     }
 
-    /// Spring a view from `offset` (where it was drawn before) back to where it is now.
-    /// Additive, so it composes with whatever else the layer is doing.
-    static func fly(_ v: NSView, from offset: CGSize) {
-        v.wantsLayer = true // a just-mounted view may not have its layer yet
-        guard let l = v.layer, abs(offset.width) + abs(offset.height) > 0.5 else { return }
-        let s = NotchRootView.spring("transform.translation")
-        s.fromValue = NSValue(size: offset)
-        s.toValue = NSValue(size: .zero)
-        s.isAdditive = true
-        l.add(s, forKey: "fly")
-    }
-
     /// Pressed buttons squish a little (around their center) and spring back.
     static func press(_ v: NSView, _ down: Bool) {
         guard let l = v.layer else { return }
@@ -179,6 +167,8 @@ final class IconButton: NSButton {
 
 // MARK: - Expanded list
 
+/// Only what's waiting on you (needs you, plan ready, failed, done unread); T3's shelves are
+/// counted in the footer. A row opens its thread; the footer opens T3 Code.
 @MainActor
 final class ExpandedView: FlippedView {
     private let model: NotchModel
@@ -186,14 +176,15 @@ final class ExpandedView: FlippedView {
 
     private let heading = UI.label(UI.font(12, .semibold))
     private let note = UI.label(UI.font(10, .medium))
-    private let counts = UI.label(UI.font(11, .semibold))
     private lazy var gear = IconButton("gearshape.fill", size: 20, glyph: 11, filled: false, help: "Settings") { [weak self] in
         self?.model.onSettings()
     }
-    private let empty = UI.label(UI.font(12), NSColor.white.withAlphaComponent(0.5))
+    private let emptyIcon = NSImageView()
+    private let empty = UI.label(UI.font(12, .medium), NSColor.white.withAlphaComponent(0.5))
     private var rows: [String: ThreadRowView] = [:]
     private lazy var reply = ReplyBar(model: model, store: store)
     private let hints = KeyHintsView()
+    private lazy var footer = ShelfFooter(model: model, store: store)
     private var clock: Timer?
 
     init(model: NotchModel, store: ThreadStore) {
@@ -201,8 +192,8 @@ final class ExpandedView: FlippedView {
         self.store = store
         super.init(frame: .zero)
         heading.stringValue = "T3 Code"
-        empty.alignment = .center
-        [heading, note, counts, gear, empty, hints].forEach(addSubview)
+        emptyIcon.imageScaling = .scaleProportionallyDown
+        [heading, note, gear, emptyIcon, empty, hints, footer].forEach(addSubview)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -211,7 +202,7 @@ final class ExpandedView: FlippedView {
         super.viewDidMoveToWindow()
         clock?.invalidate()
         guard window != nil else { return }
-        // Times and run clocks: one tick a second while the list is open, nothing otherwise.
+        // Relative times: one tick a second while the list is open, nothing otherwise.
         clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.rows.values.forEach { $0.tick() } }
         }
@@ -219,7 +210,6 @@ final class ExpandedView: FlippedView {
     }
 
     func update() {
-        // Header
         if store.incompatible != nil {
             note.stringValue = "Needs an update"
             note.textColor = ThreadStatus.pendingApproval.color
@@ -229,18 +219,9 @@ final class ExpandedView: FlippedView {
         } else {
             note.stringValue = ""
         }
-        let c = NSMutableAttributedString()
-        let f = UI.font(11, .semibold)
-        if !store.needsYou.isEmpty {
-            let amber = ThreadStatus.pendingApproval.color
-            c.append(UI.symbol("hand.raised.fill", 10, amber)); c.append(UI.text(" \(store.needsYou.count)   ", f, amber))
-        }
-        let busyColor = store.busy.isEmpty ? NSColor.white.withAlphaComponent(0.5) : ThreadStatus.working.color
-        c.append(UI.symbol("bolt.fill", 10, busyColor)); c.append(UI.text(" \(store.busy.count)", f, busyColor))
-        counts.attributedStringValue = c
 
         // Rows: reuse by thread id.
-        let threads = store.threads
+        let threads = model.listThreads
         let ids = Set(threads.map(\.id))
         for (id, row) in rows where !ids.contains(id) { row.removeFromSuperview(); rows[id] = nil }
         for t in threads {
@@ -252,8 +233,16 @@ final class ExpandedView: FlippedView {
             }()
             row.configure(t, selected: model.keyboard && model.selectedThread?.id == t.id)
         }
-        empty.isHidden = !threads.isEmpty
-        empty.stringValue = store.incompatible ?? (store.connected ? "No threads" : "T3 Code isn't running")
+
+        let quiet = threads.isEmpty
+        empty.isHidden = !quiet
+        emptyIcon.isHidden = !quiet || store.incompatible != nil || !store.connected
+        if quiet {
+            empty.stringValue = store.incompatible ?? (store.connected ? "Nothing needs you" : "T3 Code isn't running")
+            emptyIcon.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)
+                    .applying(.init(paletteColors: [NSColor.white.withAlphaComponent(0.35)])))
+        }
 
         // Reply field under its row.
         if let id = model.replyingTo, let t = threads.first(where: { $0.id == id }) {
@@ -265,18 +254,8 @@ final class ExpandedView: FlippedView {
 
         hints.isHidden = !model.keyboard
         if model.keyboard { hints.show(for: model.selectedThread, replying: model.replyingTo != nil) }
+        footer.update()
         needsLayout = true
-    }
-
-    /// Where a thread's title sits, for flying the collapsed bar's title into (or out of) it.
-    func titleRect(of id: String, in view: NSView) -> CGRect? {
-        layoutSubtreeIfNeeded()
-        return rows[id]?.titleRect(in: view)
-    }
-
-    func flyTitle(of id: String, from rect: CGRect, in view: NSView) {
-        layoutSubtreeIfNeeded() // rows get their frames in layout(); measure where they really are
-        rows[id]?.flyTitle(from: rect, in: view)
     }
 
     override func layout() {
@@ -286,12 +265,10 @@ final class ExpandedView: FlippedView {
         heading.frame = CGRect(x: 32, y: (top - UI.height(heading)) / 2, width: UI.width(heading), height: UI.height(heading))
         note.frame = CGRect(x: heading.frame.maxX + 6, y: (top - UI.height(note)) / 2 + 1, width: UI.width(note), height: UI.height(note))
         gear.frame = CGRect(x: w - 32 - 20, y: (top - 20) / 2, width: 20, height: 20)
-        let cw = UI.width(counts)
-        counts.frame = CGRect(x: gear.frame.minX - 8 - cw, y: (top - UI.height(counts)) / 2, width: cw, height: UI.height(counts))
 
-        var y = top + 8
+        var y = model.listTop
         let rowX: CGFloat = 22, rowW = w - 44
-        for t in store.threads {
+        for t in model.listThreads {
             guard let row = rows[t.id] else { continue }
             let h = model.rowHeight(t)
             row.frame = CGRect(x: rowX, y: y, width: rowW, height: h)
@@ -301,8 +278,104 @@ final class ExpandedView: FlippedView {
                 y += NotchModel.replyHeight
             }
         }
-        empty.frame = CGRect(x: 0, y: top + 8 + (NotchModel.rowHeight - 16) / 2, width: w, height: 16)
-        hints.frame = CGRect(x: 0, y: bounds.height - NotchModel.hintsHeight - 10, width: w, height: NotchModel.hintsHeight)
+        // Empty: a quiet check and one line, centered (by frame) in a row's height.
+        let ew = UI.width(empty) + 4, eh = UI.height(empty)
+        let iconW: CGFloat = emptyIcon.isHidden ? 0 : 20
+        let ex = ((w - ew - iconW) / 2).rounded()
+        let ey = (model.listTop + (NotchModel.rowHeight - eh) / 2).rounded()
+        emptyIcon.frame = CGRect(x: ex, y: ey + (eh - 16) / 2, width: 16, height: 16)
+        empty.frame = CGRect(x: ex + iconW, y: ey, width: ew, height: eh)
+
+        let footerTop = model.footerTop
+        hints.frame = CGRect(x: 0, y: footerTop - NotchModel.hintsHeight - 2, width: w, height: NotchModel.hintsHeight)
+        footer.frame = CGRect(x: rowX, y: footerTop, width: rowW, height: NotchModel.footerHeight)
+    }
+}
+
+/// "+2 more · ⚡ 5 working · ☾ 2 snoozed · ▣ 14 settled   Open T3 Code ↗", as one button: T3's
+/// sidebar shelves, counted, not opened here. Clicking anywhere on it brings T3 Code up.
+@MainActor
+final class ShelfFooter: FlippedView {
+    private let model: NotchModel
+    private let store: ThreadStore
+    private let divider = CALayer()
+    private let plate = CALayer()
+    private let counts = UI.label(UI.font(11, .medium))
+    private let open = UI.label(UI.font(11, .semibold))
+    private var lit: Bool?
+
+    init(model: NotchModel, store: ThreadStore) {
+        self.model = model
+        self.store = store
+        super.init(frame: .zero)
+        wantsLayer = true
+        divider.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        plate.cornerRadius = 11
+        layer?.addSublayer(divider)
+        layer?.addSublayer(plate)
+        [counts, open].forEach(addSubview)
+        toolTip = "Open T3 Code"
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func mouseDown(with event: NSEvent) { store.openApp() }
+
+    func update() {
+        let s = store.summary
+        let dim = NSColor.white.withAlphaComponent(0.45), bright = NSColor.white.withAlphaComponent(0.88)
+        let numberFont = UI.rounded(11, .semibold), wordFont = UI.font(11, .medium)
+        let out = NSMutableAttributedString()
+        func chip(_ symbol: String, _ n: Int, _ word: String, tint: NSColor? = nil) {
+            if out.length > 0 { out.append(UI.text("   ·   ", wordFont, NSColor.white.withAlphaComponent(0.2))) }
+            let lit = n > 0
+            out.append(UI.symbol(symbol, 10, lit ? (tint ?? bright) : dim))
+            out.append(UI.text("  \(n)", numberFont, lit ? bright : dim))
+            out.append(UI.text(" " + word, wordFont, dim))
+        }
+        let hidden = model.hiddenCount
+        if hidden > 0 { chip("ellipsis.circle.fill", hidden, "more", tint: bright) }
+        chip("bolt.fill", s.working, "working", tint: ThreadStatus.working.color)
+        chip("moon.zzz.fill", s.snoozed, "snoozed")
+        chip("archivebox.fill", s.settled, "settled")
+        counts.attributedStringValue = out
+
+        let hover = model.hoveredFooter
+        let openText = NSMutableAttributedString(attributedString: UI.text("Open T3 Code  ", UI.font(11, .semibold),
+                                                                          NSColor.white.withAlphaComponent(hover ? 0.95 : 0.6)))
+        openText.append(UI.symbol("arrow.up.forward", 9, NSColor.white.withAlphaComponent(hover ? 0.95 : 0.6), .bold))
+        open.attributedStringValue = openText
+
+        // Hover: the plate fades up, like a row.
+        let background = (hover ? Theme.current.fill(0.1) : Theme.current.fill(0.045)).cgColor
+        if lit != nil, lit != hover {
+            let fade = CABasicAnimation(keyPath: "backgroundColor")
+            fade.fromValue = plate.presentation()?.backgroundColor ?? plate.backgroundColor
+            fade.toValue = background
+            fade.duration = hover ? 0.12 : 0.25
+            plate.add(fade, forKey: "lit")
+        }
+        lit = hover
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        plate.backgroundColor = background
+        CATransaction.commit()
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let w = bounds.width
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        divider.frame = CGRect(x: 10, y: 0, width: w - 20, height: 1)
+        plate.frame = CGRect(x: 0, y: 8, width: w, height: bounds.height - 12)
+        CATransaction.commit()
+        let mid = plate.frame.midY
+        let ow = UI.width(open), oh = UI.height(open)
+        open.frame = CGRect(x: w - 14 - ow, y: (mid - oh / 2).rounded(), width: ow, height: oh)
+        let ch = UI.height(counts)
+        counts.frame = CGRect(x: 14, y: (mid - ch / 2).rounded(), width: max(0, open.frame.minX - 12 - 14), height: ch)
     }
 }
 
@@ -466,13 +539,6 @@ final class ThreadRowView: FlippedView {
         if t.request != nil { actions.configure(t) }
         tick()
         needsLayout = true
-    }
-
-    func titleRect(in view: NSView) -> CGRect { title.convert(title.bounds, to: view) }
-
-    func flyTitle(from rect: CGRect, in view: NSView) {
-        let now = titleRect(in: view)
-        UI.fly(title, from: CGSize(width: rect.minX - now.minX, height: rect.minY - now.minY))
     }
 
     /// Once a second: relative time / run clock / usage-limit countdown.
@@ -1088,6 +1154,13 @@ enum Settings {
     static var showModel: Bool {
         get { UserDefaults.standard.object(forKey: showModelKey) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: showModelKey) }
+    }
+
+    /// Hovering the notch opens the list (off by default: clicking it does).
+    private static let openOnHoverKey = "openOnHover"
+    static var openOnHover: Bool {
+        get { UserDefaults.standard.object(forKey: openOnHoverKey) as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: openOnHoverKey) }
     }
 
     /// Hidden from screen sharing, recordings and screenshots (default), or visible in them.

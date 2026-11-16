@@ -27,8 +27,7 @@ final class NotchController {
     private let store: ThreadStore
 
     /// Window is sized for the largest state; the visible notch is drawn inside it.
-    /// Wide enough for the split island beside the widest collapsed bar.
-    private static let canvas = CGSize(width: 700, height: 560)
+    private static let canvas = CGSize(width: 700, height: NotchModel.maxHeight)
 
     /// While the settings menu is open the cursor leaves the notch; don't collapse under it.
     var holdOpen = false
@@ -107,7 +106,7 @@ final class NotchController {
 
     /// Keyboard mode (shortcut): expand, select the most urgent thread, take focus.
     func focus() {
-        model.selection = (store.stickyEvent ?? store.needsYou.first ?? store.threads.first)?.id
+        model.selection = (store.stickyEvent ?? model.listThreads.first)?.id
         model.keyboard = true
         syncFocus()
     }
@@ -228,16 +227,16 @@ final class NotchController {
         let inside = rect.insetBy(dx: -4, dy: -4).contains(p)
         let row = inside ? model.rowId(atY: rect.maxY - p.y) : nil
         if model.hoveredRow != row { model.hoveredRow = row }
+        let footer = inside && model.isFooter(atY: rect.maxY - p.y)
+        if model.hoveredFooter != footer { model.hoveredFooter = footer }
         if model.focused { return } // keyboard / reply mode: stays open until Esc or click-away
-        // The split island takes clicks, but hovering it doesn't open the list.
-        let onBubble = model.splitNeedsYou && CGRect(x: rect.maxX + NotchModel.bubbleGap, y: rect.maxY - model.notchSize.height,
-                                                     width: NotchModel.bubbleWidth, height: model.notchSize.height).contains(p)
-        panel.ignoresMouseEvents = !(inside || onBubble)
+        panel.ignoresMouseEvents = !inside // takes the click that opens it
 
         if inside {
             collapseWork?.cancel()
             collapseWork = nil
-            if !model.hovering { model.hovering = true }
+            // Otherwise a click opens it (NotchRootView.mouseDown).
+            if Settings.openOnHover, !model.hovering { model.hovering = true }
         } else if model.hovering, collapseWork == nil, !holdOpen {
             let work = DispatchWorkItem { [weak self] in
                 self?.model.hovering = false
@@ -447,6 +446,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(themeMenu())
         menu.addItem(liveMenu())
 
+        let hover = NSMenuItem(title: "Open on Hover", action: #selector(toggleOpenOnHover), keyEquivalent: "")
+        hover.target = self
+        hover.state = Settings.openOnHover ? .on : .off
+        hover.toolTip = "Off (default): click the notch to open the list."
+        menu.addItem(hover)
+
         let showModel = NSMenuItem(title: "Show Model", action: #selector(toggleShowModel), keyEquivalent: "")
         showModel.target = self
         showModel.state = Settings.showModel ? .on : .off
@@ -600,6 +605,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleCapture() {
         Settings.hideFromCapture.toggle()
         controllers.forEach { $0.applyCaptureSetting() }
+    }
+
+    @objc private func toggleOpenOnHover() {
+        Settings.openOnHover.toggle()
     }
 
     @objc private func toggleShowModel() {

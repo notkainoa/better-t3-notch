@@ -133,15 +133,24 @@ final class ThreadStore: ObservableObject {
     @Published private(set) var commandOutput: [String: [String]] = [:]
     /// Set when the server speaks a protocol this build doesn't (shown instead of threads).
     @Published private(set) var incompatible: String?
+    /// Everything the collapsed pill and the list's footer count, over all threads (not just the
+    /// ones with rows).
+    @Published private(set) var summary = NotchSummary()
 
     var busy: [T3Thread] { threads.filter { $0.status.isBusy } }
     var needsYou: [T3Thread] { threads.filter { $0.status.needsYou } }
     var active: [T3Thread] { threads.filter { $0.status.isActive } }
+    /// The open list: only threads waiting on you (needs you, plan ready, failed, done unread).
+    var inbox: [T3Thread] { threads.filter { NotchSummary.kind(of: $0.status) != nil } }
+    /// Waiting threads that didn't get a row.
+    var inboxOverflow: Int { max(0, summary.attention - inbox.count) }
     var event: T3Thread? { eventId.flatMap { id in threads.first { $0.id == id } } }
     /// The "needs you" card stays up (and stays interactive) until it's answered or dismissed.
     var stickyEvent: T3Thread? { event.flatMap { $0.status.needsYou ? $0 : nil } }
 
-    static let visibleCount = 6
+    /// Rows in the open list, and busy threads followed for the Live Activity.
+    static let inboxCount = 6
+    static let busyCount = 4
 
     // Shell state
     private var shell: [String: ShellThread] = [:]
@@ -176,10 +185,25 @@ final class ThreadStore: ObservableObject {
     private let auth = TokenStore()
 
     func start() {
+        if !Self.demo.threads.isEmpty {
+            // Demo: fake threads only, and no connection (or token) to the real T3 Code.
+            connected = true
+            scheduleRecompute()
+            return
+        }
         connect()
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkLimitResets() }
+            Task { @MainActor in
+                self?.checkLimitResets()
+                self?.scheduleRecompute() // snoozes wake on a clock, not on an update
+            }
         }
+    }
+
+    /// T3 Code, without picking a thread (the list's footer).
+    func openApp() {
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") else { return }
+        NSWorkspace.shared.openApplication(at: app, configuration: .init())
     }
 
     // MARK: Opening threads
@@ -339,6 +363,7 @@ final class ThreadStore: ObservableObject {
             try? await Task.sleep(for: .seconds(6))
             guard !connected else { return }
             threads = []
+            summary = NotchSummary()
             dismissEvent()
             sending = []
         }
@@ -461,31 +486,54 @@ final class ThreadStore: ObservableObject {
         for (id, t) in shell where t.childRequest != nil && childRequests[id] == nil { shell[id]?.childRequest = nil }
 
         let candidates = shell.values.filter { !$0.isChild && !$0.archived && !$0.deleted }
-        func rank(_ s: ThreadStatus) -> Int {
-            s.needsYou || s == .guestRequest ? 0 : s == .waiting ? 2 : s.isBusy ? 1 : 3
+        // Sorted into T3's shelves. Snoozed threads stay out of sight until they wake (or raise
+        // their hand, which wakes them); settled ones only count if they need you.
+        let now = Date()
+        var summary = NotchSummary()
+        var waiting: [ShellThread] = [], busy: [ShellThread] = [], awake: [ShellThread] = []
+        for t in candidates {
+            let shelf = t.shelf(now: now)
+            if shelf == .snoozed { summary.snoozed += 1; continue }
+            awake.append(t)
+            if shelf == .settled { summary.settled += 1 }
+            if t.status.isBusy { summary.working += 1; busy.append(t); continue }
+            guard NotchSummary.kind(of: t.status) != nil, shelf == .inbox || t.status.needsYou else { continue }
+            summary.add(t.status)
+            waiting.append(t)
         }
-        // Active threads stream updates constantly, so ordering them by `updatedAt` makes rows
-        // swap places under the cursor. Order them by when their run started instead (stable).
-        func key(_ t: ShellThread) -> Date { t.status.isActive ? (t.startedAt ?? t.updatedAt) : t.updatedAt }
-        let visible = candidates
-            .sorted { a, b in
-                let (ra, rb) = (rank(a.status), rank(b.status))
-                if ra != rb { return ra < rb }
-                let (ka, kb) = (key(a), key(b))
-                return ka != kb ? ka > kb : a.id < b.id
+        // Most urgent first (questions, plans, failures, then finishes), newest first within each.
+        func rank(_ s: ThreadStatus) -> Int {
+            switch NotchSummary.kind(of: s) {
+            case .question?: 0
+            case .plan?: 1
+            case .failed?: 2
+            default: 3
             }
-            .prefix(Self.visibleCount)
+        }
+        func newest(_ a: ShellThread, _ b: ShellThread) -> Bool {
+            a.updatedAt != b.updatedAt ? a.updatedAt > b.updatedAt : a.id < b.id
+        }
+        let inbox = waiting.sorted { rank($0.status) != rank($1.status) ? rank($0.status) < rank($1.status) : newest($0, $1) }
+        // Busy threads stream updates constantly, so ordering them by `updatedAt` makes them
+        // reshuffle. Order by when their run started instead (stable).
+        func started(_ t: ShellThread) -> Date { t.startedAt ?? t.updatedAt }
+        let working = busy.sorted { started($0) != started($1) ? started($0) > started($1) : $0.id < $1.id }
+        let visible = Array(inbox.prefix(Self.inboxCount)) + working.prefix(Self.busyCount)
 
         syncDetailSubscriptions(Set(visible.map(\.id)))
         fetchEditCounts(visible)
-        detectTransitions(candidates)
+        detectTransitions(awake)
 
         var rows = visible.map(row)
         if !Self.demo.threads.isEmpty {
             // Demo shows only fake threads, so screenshots never include real work.
-            rows = Array(Self.demo.threads.prefix(Self.visibleCount))
-            if let id = Self.demo.eventId { eventId = id }
+            rows = Self.demo.threads
+            summary = NotchSummary(snoozed: 2, settled: 14)
+            rows.forEach { summary.add($0.status) }
+            // Once, through the live path: a finish goes back to the pill after 7s, a card can be put away.
+            if let id = Self.demo.eventId, threads.isEmpty, let t = rows.first(where: { $0.id == id }) { showEvent(t) }
         }
+        if summary != self.summary { self.summary = summary }
         if rows != threads { threads = rows }
     }
 
@@ -619,7 +667,8 @@ final class ThreadStore: ObservableObject {
     }
 
     /// Fake threads for checking layouts without waiting for real events:
-    /// `T3NOTCH_DEMO=approval|question|finished|list` (list: PR markers, usage limit, every status).
+    /// `T3NOTCH_DEMO=approval|question|finished|list` (list: PR markers, usage limit, every status),
+    /// and one per pill message: `working|done|failed|plan|asked-done`.
     private static let demo: (threads: [T3Thread], eventId: String?) = {
         guard let mode = ProcessInfo.processInfo.environment["T3NOTCH_DEMO"] else { return ([], nil) }
         func make(_ id: String, _ title: String, _ status: ThreadStatus, started: Double = -200, updated: Double = -30) -> T3Thread {
@@ -651,7 +700,36 @@ final class ThreadStore: ObservableObject {
             t.activity = t.lastMessage
             t.linesAdded = 812; t.linesRemoved = 431
             return ([t], "demo")
-        case "list", "split":
+        case "working":
+            let ts = (1...5).map { i -> T3Thread in
+                var t = make("w\(i)", "Working thread \(i)", .working, started: Double(-60 * i))
+                t.provider = "claudeAgent"
+                return t
+            }
+            return (ts, nil)
+        case "done", "failed", "plan":
+            let status: ThreadStatus = mode == "done" ? .completed : mode == "failed" ? .failed : .planReady
+            var t = make("d1", "Release notes for 2.4", status, updated: -120)
+            t.provider = "claudeAgent"
+            t.activity = mode == "plan" ? "Plan ready: 6 steps, starting with the empty states"
+                : mode == "failed" ? "Tests failed: 3 of 412 in checkout" : "Drafted the notes and opened the PR."
+            var w = make("w1", "Add dark mode to the dashboard", .working, started: -95)
+            w.provider = "codex"
+            return ([t, w], nil)
+        case "asked-done": // a question whose card was put away, and a finished run
+            var q = make("q1", "Clean up old build artifacts", .pendingApproval, updated: -40)
+            q.provider = "claudeAgent"
+            q.activity = "rm -rf .build T3Notch.app"; q.activityIcon = "questionmark.bubble"
+            q.request = .init(id: "demo", kind: .approval(prompt: "rm -rf .build T3Notch.app", reason: nil,
+                                                          options: [.init(decision: "decline", label: "Decline", warning: nil),
+                                                                    .init(decision: "accept", label: "Approve", warning: nil)]))
+            var d = make("d1", "Release notes for 2.4", .completed, updated: -300)
+            d.provider = "codex"
+            d.activity = "Drafted the notes and opened the PR."
+            var w = make("w1", "Add dark mode to the dashboard", .working, started: -95)
+            w.provider = "claudeAgent"
+            return ([q, d, w], nil)
+        case "list":
             var a = make("d1", "Fix checkout flow regression", .working, started: -754)
             a.provider = "codex"; a.model = "GPT-5.3 Codex"
             a.activity = "$ pnpm test --filter checkout"; a.activityIcon = "terminal"
@@ -679,12 +757,6 @@ final class ThreadStore: ObservableObject {
             f.provider = "claudeAgent"
             f.activity = "Editing ThemeProvider.tsx"; f.activityIcon = "pencil"
             f.linesAdded = 37; f.linesRemoved = 12; f.toolCalls = 9
-            if mode == "split" { // something needs you while others work, its card put away
-                var g = make("d7", "Clean up old build artifacts", .pendingApproval)
-                g.provider = "claudeAgent"
-                g.activity = "rm -rf .build T3Notch.app"; g.activityIcon = "questionmark.bubble"
-                return ([g, f, a, b, c, d], nil)
-            }
             return ([f, a, b, c, d, e], nil)
         default:
             return ([], nil)
@@ -969,6 +1041,12 @@ struct ShellThread: Sendable {
     /// T3 keeps status "failed" for usage limits; the class says why.
     let usageLimited: Bool
     let usageLimitResetAt: Date?
+    /// T3's sidebar shelves: settled by the user or auto-settle, or snoozed until a time.
+    var settled = false
+    var snoozedUntil: Date?
+    var snoozedAt: Date?
+    var pendingKind: String?
+    var pendingCreatedAt: Date?
     /// Set by the store from children's requests.
     var childRequest: ThreadStatus? {
         didSet { if childRequest != oldValue { status = resolveStatus() } }
@@ -996,6 +1074,37 @@ struct ShellThread: Sendable {
 
     private var runSettled: Bool {
         !["preparing", "starting", "running", "waiting", "queued"].contains(runtimeStatus ?? "")
+    }
+
+    enum Shelf: Sendable { case inbox, snoozed, settled }
+
+    /// Where T3's sidebar puts it: snoozed outranks settled, everything else is the inbox.
+    func shelf(now: Date) -> Shelf {
+        if isSnoozed(now: now) { return .snoozed }
+        return settled ? .settled : .inbox
+    }
+
+    /// `effectiveSnoozed` (t3code client-runtime threadSettled.ts): until the wake time, unless
+    /// the thread raised its hand since it was snoozed.
+    func isSnoozed(now: Date) -> Bool {
+        guard let until = snoozedUntil, until > now else { return false }
+        return !raisedHandWhileSnoozed
+    }
+
+    /// `threadRaisedHandWhileSnoozed`: an approval, a *new* question, a subagent's request, a
+    /// guest message, or a failure after the snooze. Finishing never wakes it.
+    private var raisedHandWhileSnoozed: Bool {
+        if let kind = pendingKind, kind != "user_input" { return true }
+        if hasPendingUserInput || pendingKind == "user_input" {
+            // Snoozing an existing question means "ask me later"; only a newer one wakes it.
+            guard let snoozedAt, let asked = pendingCreatedAt, asked <= snoozedAt else { return true }
+        }
+        if childRequest != nil || pendingGuestMessages > 0 { return true }
+        if latestRunStatus == "failed" {
+            guard let snoozedAt else { return true }
+            if (latestRunCompletedAt ?? updatedAt) > snoozedAt { return true }
+        }
+        return false
     }
 
     var phase: RunPhase {
@@ -1201,6 +1310,11 @@ enum Incoming: Sendable {
             usageLimited: status == "failed" && t["lastErrorClass"] as? String == "usage_limit",
             usageLimitResetAt: date(t["usageLimitResetAt"])
         )
+        thread.settled = t["settledOverride"] as? String == "settled"
+        thread.snoozedUntil = date(t["snoozedUntil"])
+        thread.snoozedAt = date(t["snoozedAt"])
+        thread.pendingKind = pendingKind
+        thread.pendingCreatedAt = date(pending?["createdAt"])
         thread.refreshStatus()
         return thread
     }

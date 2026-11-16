@@ -56,6 +56,8 @@ final class NotchModel: ObservableObject {
     /// Row under the cursor, computed from the mouse position (tracking areas miss
     /// enter/exit in a non-activating panel, which left highlights stuck on the wrong row).
     @Published var hoveredRow: String?
+    /// Cursor over the list's footer (same reason).
+    @Published var hoveredFooter = false
     @Published var draft = ""
 
     /// Needs keyboard focus (and must not collapse when the cursor wanders off).
@@ -72,9 +74,9 @@ final class NotchModel: ObservableObject {
     static let actionBarHeight: CGFloat = 40 // approve / answer buttons under a waiting row
     static let replyHeight: CGFloat = 44
     static let hintsHeight: CGFloat = 24
-    static let wing: CGFloat = 190 // side area next to the hardware notch in activity mode
-    static let bubbleGap: CGFloat = 6
-    static let bubbleWidth: CGFloat = 58
+    static let footerHeight: CGFloat = 52
+    /// Tallest the open list gets (the window is this tall); rows past it are counted in the footer.
+    static let maxHeight: CGFloat = 600
 
     init(notchSize: CGSize, hardwareNotch: Bool, store: ThreadStore) {
         self.notchSize = notchSize
@@ -88,27 +90,32 @@ final class NotchModel: ObservableObject {
         if store.stickyEvent != nil { return .peek }
         if hovering { return .expanded }
         if store.event != nil { return .peek }
-        if !store.active.isEmpty { return .activity }
+        if !store.summary.isQuiet { return .activity }
         return .idle
     }
 
-    /// Something needs you while other threads work, and its card was put away: it gets its own
-    /// little island beside the notch (like iOS with two live activities), and the bar keeps
-    /// showing the work instead of fighting over one slot.
-    var splitNeedsYou: Bool {
-        mode == .activity && !store.needsYou.isEmpty && store.active.contains { !$0.status.needsYou }
+    /// Rows in the open list: the inbox, as many as fit; the footer counts the rest.
+    var listThreads: [T3Thread] {
+        var room = Self.maxHeight - listTop - Self.footerHeight - 14 - (keyboard ? Self.hintsHeight : 0)
+        var out: [T3Thread] = []
+        for t in store.inbox {
+            // Without the command-output peek: that height depends on the selection, which
+            // depends on these rows. Inbox threads aren't running anyway.
+            room -= baseHeight(t) + (replyingTo == t.id ? Self.replyHeight : 0)
+            if room < 0 { break }
+            out.append(t)
+        }
+        return out
     }
 
-    /// What the collapsed bar rotates through.
-    var compactThreads: [T3Thread] {
-        splitNeedsYou ? store.active.filter { !$0.status.needsYou } : store.active
-    }
+    /// Waiting threads without a row (didn't fit, or past the store's cap).
+    var hiddenCount: Int { max(0, store.summary.attention - listThreads.count) }
 
-    /// The status the collapsed bar (and its glow) leads with.
-    var leadStatus: ThreadStatus? {
-        let order: [ThreadStatus] = [.pendingApproval, .awaitingInput, .guestRequest, .working, .connecting, .waiting]
-        let threads = compactThreads
-        return order.first { s in threads.contains { $0.status == s } }
+    var listTop: CGFloat { notchSize.height + 8 }
+    /// Where the footer starts, below the rows (or the empty message) and the key hints.
+    var footerTop: CGFloat {
+        let rows = listThreads.reduce(CGFloat(0)) { $0 + slotHeight($1) }
+        return listTop + max(rows, Self.rowHeight) + (keyboard ? Self.hintsHeight : 0) + 4
     }
 
     var size: CGSize {
@@ -116,8 +123,13 @@ final class NotchModel: ObservableObject {
         case .idle:
             return notchSize
         case .activity:
-            // One row: [indicator] [thread] [count], flush with the menu bar.
-            let width = hardwareNotch ? notchSize.width + Self.wing * 2 : 540
+            // One line, flush with the menu bar: icons on the left, words on the right. Beside a
+            // camera notch each side gets its own wing, both as wide as the wider of the two.
+            let (icons, text) = StatusPill.widths(store.summary)
+            let inset = sideInset(for: .activity)
+            let width = hardwareNotch
+                ? notchSize.width + (max(icons, text) + inset + 12) * 2
+                : max(notchSize.width, inset * 2 + icons + 10 + text)
             return .init(width: width, height: notchSize.height)
         case .peek:
             guard let event = store.event else { return notchSize }
@@ -129,10 +141,7 @@ final class NotchModel: ObservableObject {
             let w = max(notchSize.width + 240, 440)
             return .init(width: w, height: Layout.finished(event, width: w, top: notchSize.height, inset: sideInset(for: .peek)).height)
         case .expanded:
-            let rows = store.threads.reduce(CGFloat(0)) { $0 + slotHeight($1) }
-            return .init(width: Self.expandedWidth,
-                         height: notchSize.height + 8 + max(rows, Self.rowHeight) + 18
-                             + (keyboard ? Self.hintsHeight : 0))
+            return .init(width: Self.expandedWidth, height: footerTop + Self.footerHeight + 10)
         }
     }
 
@@ -150,10 +159,13 @@ final class NotchModel: ObservableObject {
 
     /// Height of a thread row itself (the reply field is a separate view below it).
     func rowHeight(_ t: T3Thread) -> CGFloat {
+        baseHeight(t) + (showsOutput(t) ? Self.outputHeight : 0)
+    }
+
+    private func baseHeight(_ t: T3Thread) -> CGFloat {
         // Two lines (title, meta) unless there's an activity line to show.
         (t.activity == nil && !t.usageLimited ? Self.compactRowHeight : Self.rowHeight)
             + (t.request != nil ? Self.actionBarHeight : 0)
-            + (showsOutput(t) ? Self.outputHeight : 0)
     }
 
     func slotHeight(_ t: T3Thread) -> CGFloat {
@@ -163,8 +175,8 @@ final class NotchModel: ObservableObject {
     /// Thread row at `y` points below the top of the notch (expanded layout).
     func rowId(atY y: CGFloat) -> String? {
         guard mode == .expanded else { return nil }
-        var top = notchSize.height + 8
-        for t in store.threads {
+        var top = listTop
+        for t in listThreads {
             let h = slotHeight(t)
             if y >= top && y < top + h { return t.id }
             top += h
@@ -172,25 +184,29 @@ final class NotchModel: ObservableObject {
         return nil
     }
 
+    /// The footer's button at `y` points below the top of the notch (expanded layout).
+    func isFooter(atY y: CGFloat) -> Bool {
+        mode == .expanded && y >= footerTop + 6 && y < footerTop + Self.footerHeight - 6
+    }
+
     /// Everything the collapsed notch draws. While collapsed, store changes that leave this
     /// equal (tool counts, idle rows, timestamps) skip the redraw entirely.
     var renderKey: [AnyHashable] {
-        var key: [AnyHashable] = [mode, store.connected, store.incompatible, store.eventId, splitNeedsYou]
+        let key: [AnyHashable] = [mode, store.connected, store.incompatible, store.eventId, store.summary.text,
+                                  store.summary.waiting]
         guard mode == .activity || mode == .idle else { return key + [UUID()] } // always redraw
-        for t in store.active {
-            key += [t.id, t.title, t.status, t.activity, t.activityIcon, t.linesAdded, t.linesRemoved, t.startedAt]
-        }
         return key
     }
 
     // MARK: Keyboard navigation
 
     var selectedThread: T3Thread? {
-        store.threads.first { $0.id == selection } ?? store.threads.first
+        let rows = listThreads
+        return rows.first { $0.id == selection } ?? rows.first
     }
 
     func moveSelection(_ delta: Int) {
-        let ids = store.threads.map(\.id)
+        let ids = listThreads.map(\.id)
         guard !ids.isEmpty else { return }
         let current = selection.flatMap { ids.firstIndex(of: $0) } ?? 0
         selection = ids[min(max(current + delta, 0), ids.count - 1)]
