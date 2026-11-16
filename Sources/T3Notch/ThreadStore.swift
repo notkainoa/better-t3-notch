@@ -197,7 +197,8 @@ final class ThreadStore: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkLimitResets()
-                self?.scheduleRecompute() // snoozes wake on a clock, not on an update
+                // Snoozes wake on a clock, not on an update. Offline, the old shell is stale.
+                if self?.connected == true { self?.scheduleRecompute() }
             }
         }
     }
@@ -499,7 +500,9 @@ final class ThreadStore: ObservableObject {
             awake.append(t)
             if shelf == .settled { summary.settled += 1 }
             if t.status.isBusy { summary.working += 1; busy.append(t); continue }
-            guard NotchSummary.kind(of: t.status) != nil, shelf == .inbox || t.status.needsYou else { continue }
+            // Settled threads only come back for a question (approvals, input, guest messages).
+            let kind = NotchSummary.kind(of: t.status)
+            guard kind != nil, shelf == .inbox || kind == .question else { continue }
             summary.add(t.status)
             waiting.append(t)
         }
