@@ -15,7 +15,7 @@ Collapsed, it leaves nothing out. Usually the icons sit on the left and the word
 | Nothing waiting, threads working | a spinner | 5 working |
 | Nothing at all | | (the plain notch) |
 
-When threads are working **and** something waits on you, it shows both: what's waiting keeps the left with its icons ("`?` `✓` 2 need you"), and the spinner and "6 working" move to the right.
+When threads are working **and** something waits on you, it shows both: the spinner and "6 working" keep the left, and what's waiting moves right with its icons ("`?` `✓` 2 need you"). To keep what's waiting on the left instead, set **Settings → Appearance → What needs you sits on** to Left.
 
 "Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.
 
@@ -66,7 +66,7 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 
 ## Features
 
-- **One-line status:** what's waiting on you as icons, and one line of words beside the camera; with work going on too, how many are working on the right (see above). The list holds only what's waiting; working, snoozed and settled are counted underneath, like T3's sidebar shelves.
+- **One-line status:** what's waiting on you as icons, and one line of words beside the camera; with work going on too, how many are working on the other side (see above). The list holds only what's waiting; working, snoozed and settled are counted underneath, like T3's sidebar shelves.
 - **Pixel logos:** each provider's logo as pixel art in its own colors (Claude, Codex, Cursor, Grok, Meta, opencode, Pi). While a thread works, a lit head sweeps around the logo (opencode's "Soft Radar" loader); while it waits on background work, a soft band drifts down and up it.
 - **Motion:** a finished run springs open with a checkmark drawing itself and a green flash along the edge; "needs you" gives a small wiggle. Counts roll to their new value.
 - **T3's own statuses:** Working, Connecting, Waiting, Pending Approval, Awaiting Input, Failed, Plan Ready, Completed. The logic is ported from T3's sidebar and covered by tests.

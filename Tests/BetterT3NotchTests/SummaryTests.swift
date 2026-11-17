@@ -42,7 +42,7 @@ import Testing
         #expect(all.waiting == [.question, .plan, .failed, .done])
     }
 
-    /// Work keeps its own side while something waits: "2 need you" left, "6 working" right.
+    /// Work keeps its own side while something waits: "6 working" and "2 need you" side by side.
     @Test func workingStaysBesideWhatWaits() {
         let s = summary(Array(repeating: .working, count: 6) + [.completed, .awaitingInput])
         #expect(s.text == "2 need you")
@@ -51,6 +51,27 @@ import Testing
         let one = summary([.planReady, .waiting])
         #expect(one.text == "1 plan ready")
         #expect(one.workingAside == "1 working")
+    }
+
+    /// The notch sizes each side for what sits there: the work on the left by default, what
+    /// waits on the left with "What needs you sits on: Left".
+    @MainActor @Test func sidesFollowTheSetting() {
+        let saved = UserDefaults.standard.object(forKey: "needsYouOnLeft")
+        defer { UserDefaults.standard.set(saved, forKey: "needsYouOnLeft") }
+        let s = summary(Array(repeating: .working, count: 6) + [.completed, .awaitingInput])
+        UserDefaults.standard.removeObject(forKey: "needsYouOnLeft")
+        #expect(!Settings.needsYouOnLeft)
+        let right = StatusPill.widths(s)
+        #expect(right.left < right.right) // spinner + "6 working" vs two icons + "2 need you"
+        Settings.needsYouOnLeft = true
+        let left = StatusPill.widths(s)
+        #expect(left.left == right.right && left.right == right.left)
+        // Nothing to split: the setting changes nothing.
+        let alone = summary([.completed, .awaitingInput])
+        Settings.needsYouOnLeft = false
+        let a = StatusPill.widths(alone)
+        Settings.needsYouOnLeft = true
+        #expect(StatusPill.widths(alone) == a)
     }
 
     @Test func noAsideWithoutBothSides() {
