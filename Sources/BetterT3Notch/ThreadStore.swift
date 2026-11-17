@@ -581,7 +581,7 @@ final class ThreadStore: ObservableObject {
             return runsIn != task.delegatedFromEnvironment
         }
         for _ in 0..<8 {
-            let before = childRequests
+            let before = (childRequests, sideChatQuestionOnly)
             for task in delegated {
                 let nested = sideChatQuestionOnly.contains(task.id) ? nil : childRequests[task.id]
                 guard let parent = delegatingParent(of: task),
@@ -595,7 +595,7 @@ final class ThreadStore: ObservableObject {
                     next = p.isSubagent || p.isSideChat ? p.parentId.flatMap { shell[$0] } : nil
                 }
             }
-            if childRequests == before { break }
+            if childRequests == before.0 && sideChatQuestionOnly == before.1 { break }
         }
         // Only write where it changed: rewriting all ~400 structs per update was measurable.
         for (id, request) in childRequests where shell[id]?.childRequest != request { shell[id]?.childRequest = request }
