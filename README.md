@@ -17,7 +17,7 @@ Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wi
 
 "Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.
 
-Click it (or press **⌘⇧Space**) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on hover** in Settings.
+Click it (or press **⌘⇧Space**, which you can change in Settings) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on hover** in Settings.
 
 When an agent needs you, answer right from the notch:
 
@@ -71,7 +71,7 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 - **Act without switching apps:** approve or deny, tap an answer, reply or steer a running agent, or stop a run (two clicks).
 - **Live terminal:** hover a running command to watch its last lines stream in.
 - **At a glance:** branch, model with the provider's logo, PR number with CI checks / review / conflict markers, and a usage-limit countdown.
-- **Keyboard:** ⌘⇧Space opens it; ↑↓ select, ⏎ open, R reply, A/D approve/deny, 1–9 answer, Esc close.
+- **Keyboard:** ⌘⇧Space opens it (click the shortcut in Settings → General to record a new one); ↑↓ select, ⏎ open, R reply, A/D approve/deny, 1–9 answer, Esc close.
 - **Matches your T3 theme:** background, buttons, cards, the glow and the Working color follow T3's palette (T3 Chat, Grove, Ocean, Ember, Iris) live. Around a camera notch the top stays black and fades into the theme color. Pick one yourself under Settings → Appearance.
 - **Cozy sounds:** a soft chime when a run finishes, a deep wooden knock-knock when an agent needs you.
 - **Private by default:** invisible to screen sharing, recordings and screenshots (toggle in Settings → General).

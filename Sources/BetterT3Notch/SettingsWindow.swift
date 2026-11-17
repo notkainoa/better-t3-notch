@@ -9,6 +9,9 @@ protocol SettingsHost: AnyObject {
     func displayChanged()
     func captureChanged()
     func panelsNeedRebuild()
+    /// Registers a new global shortcut; false if macOS refuses it.
+    func setShortcut(_ shortcut: Shortcut) -> Bool
+    func shortcutRecording(_ recording: Bool)
     func toggleLaunchAtLogin()
     func openT3()
 }
@@ -239,6 +242,49 @@ class SettingsPane: NSViewController {
         return row
     }
 
+    /// The global shortcut: a keycap recorder, with a reset arrow once it's been changed.
+    func shortcut(_ title: String, _ detail: String? = nil) -> NSView {
+        let recorder = ShortcutRecorder()
+        recorder.shortcut = Shortcut.saved
+        let reset = NSButton(image: NSImage(systemSymbolName: "arrow.uturn.backward.circle.fill",
+                                            accessibilityDescription: "Reset to ⇧⌘Space")!, target: nil, action: nil)
+        reset.isBordered = false
+        reset.contentTintColor = .tertiaryLabelColor
+        reset.toolTip = "Reset to ⇧⌘Space"
+        reset.symbolConfiguration = .init(pointSize: 14, weight: .regular)
+        reset.wantsLayer = true
+        // Faded rather than hidden, so the recorder never shifts.
+        let showReset: (Bool) -> Void = { [weak reset] show in
+            guard let reset else { return }
+            reset.isEnabled = show
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                reset.animator().alphaValue = show ? 1 : 0
+            }
+        }
+        recorder.onChange = { [weak self] new in
+            guard let self, host.setShortcut(new) else { return false }
+            showReset(new != .standard)
+            return true
+        }
+        recorder.onRecording = { [weak self] in self?.host.shortcutRecording($0) }
+        let target = ActionTarget { [weak recorder, weak self] in
+            guard let recorder, let self else { return }
+            guard host.setShortcut(.standard) else { recorder.refuse("Can't use that one"); return }
+            recorder.shortcut = .standard
+            showReset(false)
+        }
+        reset.target = target
+        reset.action = #selector(ActionTarget.fire)
+        reset.alphaValue = Shortcut.saved == .standard ? 0 : 1
+        reset.isEnabled = Shortcut.saved != .standard
+
+        let control = NSStackView(views: [reset, recorder])
+        control.orientation = .horizontal
+        control.spacing = 8
+        return Row(title: title, detail: detail, control: control, keep: target, reserve: ShortcutRecorder.size.width + 30)
+    }
+
     /// Lets a pane hook its own refresh logic in (warnings and the like).
     func onRefresh(_ body: @escaping () -> Void) { refreshers.append(body) }
 
@@ -280,7 +326,7 @@ final class GeneralPane: SettingsPane {
             }),
             toggle("Open on hover", "Off: click the notch to open the list.",
                    get: { Settings.openOnHover }, set: { Settings.openOnHover = $0 }),
-            info("Open from the keyboard", value: { "⌘⇧Space" }),
+            shortcut("Open from the keyboard", "Click it, then press the keys you want. Esc cancels."),
         ])
 
         section("Privacy", [

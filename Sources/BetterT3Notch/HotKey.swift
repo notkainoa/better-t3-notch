@@ -19,7 +19,17 @@ final class HotKey {
         }, 1, &spec, me, &handler)
         let id = EventHotKeyID(signature: OSType(0x54334E54), id: 1) // 'T3NT'
         let registered = RegisterEventHotKey(keyCode, modifiers, id, GetApplicationEventTarget(), 0, &ref)
-        guard installed == noErr, registered == noErr else { return nil } // e.g. taken by another app
+        guard installed == noErr, registered == noErr else { // e.g. taken by another app
+            if let ref { UnregisterEventHotKey(ref) }
+            if let handler { RemoveEventHandler(handler) }
+            ref = nil
+            handler = nil
+            return nil
+        }
+    }
+
+    convenience init?(_ shortcut: Shortcut, action: @escaping @MainActor () -> Void) {
+        self.init(keyCode: UInt32(shortcut.keyCode), modifiers: shortcut.carbonModifiers, action: action)
     }
 
     deinit {
