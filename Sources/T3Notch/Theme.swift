@@ -86,7 +86,7 @@ struct NotchTheme: Equatable {
     var glowColor: CGColor { accentGlow ? accent.cgColor : NSColor.black.cgColor }
     var glowOpacity: Float { accentGlow ? 0.32 : 0.45 }
     /// Only themed looks glow, and only with "Accent Glow" on (menu).
-    private var accentGlow: Bool { surface != nil && Settings.accentGlow }
+    private var accentGlow: Bool { id != Self.classic.id && Settings.accentGlow }
 }
 
 /// The CSS colors T3's theme editor writes: `oklch(L C H)` (what it saves) and `#rrggbb`.
@@ -97,8 +97,8 @@ struct CSSColor: Equatable {
     static func parse(_ s: String) -> CSSColor? {
         let t = s.trimmingCharacters(in: .whitespaces).lowercased()
         if t.hasPrefix("oklch("), t.hasSuffix(")") {
-            let parts = t.dropFirst(6).dropLast().split(separator: "/")[0]
-                .split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init)
+            guard let channels = t.dropFirst(6).dropLast().split(separator: "/").first else { return nil } // "oklch()"
+            let parts = channels.split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init)
             guard parts.count >= 3, let c = Double(parts[1]) else { return nil }
             let l = parts[0].hasSuffix("%") ? Double(parts[0].dropLast()).map { $0 / 100 } : Double(parts[0])
             let h = Double(parts[2].replacingOccurrences(of: "deg", with: "")) ?? 0 // "none" hue

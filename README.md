@@ -6,7 +6,7 @@ Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wi
 
 | What's going on | Icons | It says |
 |---|---|---|
-| One kind waiting | `?` (question or approval), 📋 (plan), `✕` (failed) or `✓` (done) | 1 needs you · 2 plans ready · 1 failed · 3 done |
+| One kind waiting | `?` (question, approval or guest message), 📋 (plan), `✕` (failed) or `✓` (done) | 1 needs you · 2 plans ready · 1 failed · 3 done |
 | More than one kind waiting | every kind's icon | 4 need you |
 | Nothing waiting, threads working | a spinner | 5 working |
 | Nothing at all | | (the plain notch) |

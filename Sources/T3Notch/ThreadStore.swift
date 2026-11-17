@@ -209,8 +209,8 @@ final class ThreadStore: ObservableObject {
 
     /// T3 Code, without picking a thread (the list's footer).
     func openApp() {
-        closeForT3()
         guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") else { return }
+        closeForT3()
         NSWorkspace.shared.openApplication(at: app, configuration: .init())
     }
 
@@ -223,10 +223,11 @@ final class ThreadStore: ObservableObject {
     // MARK: Opening threads
 
     func open(_ thread: T3Thread) {
-        closeForT3()
         if let env = environmentId, let url = URL(string: "t3code://threads/\(env)/\(thread.id)") {
+            closeForT3()
             NSWorkspace.shared.open(url)
         } else if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") {
+            closeForT3()
             NSWorkspace.shared.openApplication(at: app, configuration: .init())
         }
     }

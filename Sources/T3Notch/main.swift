@@ -107,7 +107,7 @@ final class NotchController {
     var isFocused: Bool { model.focused }
     /// Pointer is somewhere this notch could care about (or it still thinks it's hovered).
     func cares(about p: CGPoint) -> Bool {
-        model.hovering || model.hoveredRow != nil || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
+        model.hovering || model.hoveredRow != nil || model.hoveredFooter || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
     }
     var peekRow: String? { model.peekRow }
 

@@ -60,6 +60,8 @@ import Testing
         #expect(hex(CSSColor.parse("oklch(62.8% 0.2577 29.23)")?.color) == "FF0000")
         #expect(hex(CSSColor.parse("#336699")?.color) == "336699") // round trip through OKLCH
         #expect(CSSColor.parse("rgb(1 2 3)") == nil)
+        #expect(CSSColor.parse("oklch()") == nil) // malformed: no crash
+        #expect(CSSColor.parse("oklch(/ 0.5)") == nil)
     }
 
     @Test func customThemesUseTheirDarkColors() {

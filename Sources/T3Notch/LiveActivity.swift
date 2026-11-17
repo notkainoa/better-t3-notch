@@ -346,7 +346,7 @@ final class LiveActivityMirror: ObservableObject {
                     review: t.pr?.review == .reviewRequired ? nil : t.pr?.review?.rawValue)
         }
         var state = NotchActivityAttributes.ContentState(rows: Array(rows), working: store.summary.working,
-                                                         needsYou: store.needsYou.count, event: event,
+                                                         needsYou: store.summary.questions, event: event,
                                                          environmentId: store.currentEnvironmentId)
         // APNs caps a Live Activity push at 4 KB (the whole payload): shed detail until it fits.
         while Self.size(state) > 3_300 {
