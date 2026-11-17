@@ -432,8 +432,9 @@ final class NotchRootView: NSView {
 
 /// The collapsed notch: what's waiting on you as icons on the left, one line of words on the
 /// right ("2 need you"), or a spinner and "5 working" when nothing waits. When both happen,
-/// what's waiting keeps the left (its icons, then "2 need you") and the work moves right
-/// (spinner and "6 working").
+/// the work keeps the left (spinner and "6 working") and what's waiting moves right (its
+/// icons, then "2 need you"); with `Settings.needsYouOnLeft`, what's waiting keeps the left
+/// and the work moves right.
 /// Beside a camera notch the two sides sit in the wings on either side of it.
 ///
 /// It spans the whole canvas, so its parts can glide with the shape's edges on the same spring.
@@ -443,17 +444,25 @@ final class NotchRootView: NSView {
 final class StatusPill: NSView {
     private let model: NotchModel
     private let store: ThreadStore
+    /// What's waiting, as icons: at the left edge, or leading "2 need you" on the right while
+    /// the work keeps the left. One set for each place, like the spinners.
     private var iconViews: [NotchSummary.Kind: NSImageView] = [:]
-    /// The work's spinner: at the left edge alone, or leading "6 working" on the right beside
-    /// what's waiting. One for each place, so a split or join cross-fades between them instead
-    /// of sliding across the camera.
+    private var rightIconViews: [NotchSummary.Kind: NSImageView] = [:]
+    /// The work's spinner: at the left edge, or leading "6 working" on the right beside what's
+    /// waiting when that keeps the left. One for each place, so a split or join cross-fades
+    /// between them instead of sliding across the camera.
     private let leftSpinner = Spinner()
     private let rightSpinner = Spinner()
-    /// The words at the right edge: "5 working" or "2 need you" alone, "6 working" beside what's
-    /// waiting (so the work's count keeps its place and rolls when the sides split or join).
+    /// The words at the right edge: "5 working" or "2 need you" alone; beside the other side,
+    /// whichever count sits on the right (so it keeps its place and rolls when the sides split
+    /// or join).
     private let rightLabel = RollingLabel(align: .right)
-    /// "2 need you" after the icons, only while the work sits on the right.
+    /// The left side's words while the sides are split: "2 need you" after the icons, or
+    /// "6 working" after the spinner.
     private let leftLabel = RollingLabel(align: .left)
+    /// Which side what's waiting takes while work sits beside it, as of the last `update`
+    /// (so a layout pass never mixes the two arrangements).
+    private var needsYouOnLeft = Settings.needsYouOnLeft
     private var kinds: [NotchSummary.Kind] = []
     private var shown = false
     /// Width of the notch shape the parts sit in (centered in the canvas).
@@ -481,16 +490,19 @@ final class StatusPill: NSView {
         wantsLayer = true
         let slot = CGRect(x: 0, y: 0, width: Self.iconSlot, height: Self.iconSlot) // pops from its middle
         for kind in NotchSummary.Kind.allCases {
-            let v = NSImageView()
-            v.imageScaling = .scaleProportionallyDown
-            v.image = Self.symbol(kind)
-            v.wantsLayer = true
-            v.frame = slot
-            iconViews[kind] = v
-            addSubview(v)
+            for right in [false, true] {
+                let v = NSImageView()
+                v.imageScaling = .scaleProportionallyDown
+                v.image = Self.symbol(kind)
+                v.wantsLayer = true
+                v.frame = slot
+                v.alphaValue = 0
+                if right { rightIconViews[kind] = v } else { iconViews[kind] = v }
+                addSubview(v)
+            }
         }
         for v in [leftSpinner, rightSpinner] { v.frame = slot }
-        for v in [leftSpinner, rightSpinner, leftLabel] + Array(iconViews.values) as [NSView] { v.alphaValue = 0 }
+        for v in [leftSpinner, rightSpinner, leftLabel] as [NSView] { v.alphaValue = 0 }
         [leftSpinner, rightSpinner, leftLabel, rightLabel].forEach(addSubview)
         alphaValue = 0
         isHidden = true
@@ -535,12 +547,13 @@ final class StatusPill: NSView {
 
     /// Room each side needs, for sizing the notch before anything is drawn: the icons (or
     /// spinner) on the left and the words on the right, or, with work beside something waiting,
-    /// icons + "2 need you" on the left and spinner + "6 working" on the right.
+    /// spinner + "6 working" on one side and icons + "2 need you" on the other.
     static func widths(_ s: NotchSummary) -> (left: CGFloat, right: CGFloat) {
         guard let text = s.text else { return (0, 0) }
         let icons = iconsWidth(s), words = wordsWidth(text)
         guard let aside = s.workingAside else { return (icons, words) }
-        return (icons + wordsGap + words, iconSlot + wordsGap + wordsWidth(aside))
+        let waiting = icons + wordsGap + words, work = iconSlot + wordsGap + wordsWidth(aside)
+        return Settings.needsYouOnLeft ? (waiting, work) : (work, waiting)
     }
 
     func setVisible(_ visible: Bool) {
@@ -586,17 +599,25 @@ final class StatusPill: NSView {
             if on, v.alphaValue < 0.5 { appeared.insert(ObjectIdentifier(v)) }
             Anim.reveal(v, on, animated: animate, scale: scale, delay: delay)
         }
-        rightLabel.set(words(s.workingAside ?? text), animated: animate)
+        needsYouOnLeft = Settings.needsYouOnLeft
+        let onLeft = needsYouOnLeft
+        rightLabel.set(words(onLeft ? s.workingAside ?? text : text), animated: animate)
         // The left words keep their last text while they fade out.
-        if split { leftLabel.set(words(text), animated: animate && leftLabel.alphaValue > 0.5) }
+        if let aside = s.workingAside {
+            leftLabel.set(words(onLeft ? text : aside), animated: animate && leftLabel.alphaValue > 0.5)
+        }
         show(leftLabel, split, scale: 0.9)
         // A new icon pops in a beat late, once the words beside it have slid over to make room.
-        for (kind, v) in iconViews {
-            let on = kinds.contains(kind)
-            show(v, on, scale: 0.4, delay: on ? 0.06 : 0)
+        let iconsRight = split && !onLeft
+        for (set, side) in [(iconViews, false), (rightIconViews, true)] {
+            for (kind, v) in set {
+                let on = kinds.contains(kind) && side == iconsRight
+                show(v, on, scale: 0.4, delay: on ? 0.06 : 0)
+            }
         }
         let working = s.working > 0
-        for (spinner, on) in [(leftSpinner, working && !split), (rightSpinner, working && split)] {
+        let spinnerRight = split && onLeft
+        for (spinner, on) in [(leftSpinner, working && !spinnerRight), (rightSpinner, working && spinnerRight)] {
             show(spinner, on, scale: 0.4)
             let id = ObjectIdentifier(spinner)
             spinnerStops[id]?.cancel()
@@ -612,8 +633,9 @@ final class StatusPill: NSView {
         place(animated: animate)
     }
 
-    /// Where everything goes. The left edge holds the spinner alone, or the icons and their
-    /// words; the right edge holds the words, led by the spinner beside what's waiting.
+    /// Where everything goes. The left edge holds the spinner or the icons, and that side's
+    /// words while the sides are split; the right edge holds the words, led by the spinner or
+    /// the icons while split.
     private func place(animated: Bool) {
         guard shown, shapeWidth > 0 else { return }
         let h = bounds.height
@@ -643,10 +665,12 @@ final class StatusPill: NSView {
                 move(v, v.frame.offsetBy(dx: -shift.left, dy: 0), .leading) // fading: rides the edge
             }
         }
+        let n = CGFloat(kinds.count)
+        let iw = n * Self.iconSlot + max(0, n - 1) * Self.iconGap
         if leftLabel.alphaValue > 0 {
-            let n = CGFloat(kinds.count)
-            let iw = n * Self.iconSlot + max(0, n - 1) * Self.iconGap
-            move(leftLabel, CGRect(x: x0 + inset + iw + Self.wordsGap, y: labelY, width: leftLabel.fittingWidth, height: lh), .leading)
+            // After the icons when what's waiting keeps the left, otherwise after the spinner.
+            let lead = needsYouOnLeft ? iw : Self.iconSlot
+            move(leftLabel, CGRect(x: x0 + inset + lead + Self.wordsGap, y: labelY, width: leftLabel.fittingWidth, height: lh), .leading)
         } else {
             move(leftLabel, leftLabel.frame.offsetBy(dx: -shift.left, dy: 0), .leading) // fading: rides the edge
         }
@@ -654,6 +678,16 @@ final class StatusPill: NSView {
         let right = CGRect(x: x1 - inset - tw, y: labelY, width: tw, height: lh)
         move(rightLabel, right, .trailing)
         move(rightSpinner, slot(right.minX - Self.wordsGap - Self.iconSlot), .trailing)
+        var rx = right.minX - Self.wordsGap - iw
+        for kind in NotchSummary.Kind.allCases {
+            guard let v = rightIconViews[kind] else { continue }
+            if kinds.contains(kind) {
+                move(v, slot(rx), .trailing)
+                rx += Self.iconSlot + Self.iconGap
+            } else {
+                move(v, v.frame.offsetBy(dx: -shift.right, dy: 0), .trailing) // fading: rides the edge
+            }
+        }
         appeared = []
     }
 

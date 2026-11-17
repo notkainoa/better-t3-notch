@@ -417,6 +417,12 @@ final class AppearancePane: SettingsPane {
                        Settings.accentGlow = $0
                        host.panelsNeedRebuild()
                    }),
+            popup("What needs you sits on", "When agents are working too, their count takes the other side.",
+                  options: { [("Right", false), ("Left", true)] },
+                  get: { Settings.needsYouOnLeft }, set: { [unowned self] in
+                      Settings.needsYouOnLeft = $0
+                      host.panelsNeedRebuild()
+                  }),
         ])
         section("Threads", [
             toggle("Show the model", "Each row says which model is running it.",
