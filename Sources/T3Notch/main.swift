@@ -85,6 +85,11 @@ final class NotchController {
         model.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in
             self?.root.refresh()
         }.store(in: &cancellables)
+        // Opening T3 Code from the notch (a row, the footer, a card): close the notch.
+        store.openedT3.receive(on: RunLoop.main).sink { [weak self] in
+            self?.unfocus(restoreFocus: false) // T3 comes to the front instead
+            self?.collapse()
+        }.store(in: &cancellables)
         // Reply field opened by mouse: the panel needs focus for typing.
         model.$replyingTo.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
             guard let self else { return }

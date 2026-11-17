@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import os
 import SQLite3
@@ -203,15 +204,26 @@ final class ThreadStore: ObservableObject {
         }
     }
 
+    /// Fires when anything in the notch brings T3 Code up: the notch closes behind it.
+    let openedT3 = PassthroughSubject<Void, Never>()
+
     /// T3 Code, without picking a thread (the list's footer).
     func openApp() {
+        closeForT3()
         guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") else { return }
         NSWorkspace.shared.openApplication(at: app, configuration: .init())
+    }
+
+    /// Put away the pop-up too: you're about to see the thread in T3 itself.
+    private func closeForT3() {
+        dismissEvent()
+        openedT3.send()
     }
 
     // MARK: Opening threads
 
     func open(_ thread: T3Thread) {
+        closeForT3()
         if let env = environmentId, let url = URL(string: "t3code://threads/\(env)/\(thread.id)") {
             NSWorkspace.shared.open(url)
         } else if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") {
