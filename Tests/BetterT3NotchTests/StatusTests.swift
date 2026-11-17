@@ -214,11 +214,33 @@ import Testing
         #expect(!task.isShownUnderParent(shell(["id": "p1", "archivedAt": "2026-10-27T20:00:00.000Z"])))
     }
 
-    @Test func delegatedTaskThatNeedsYouStaysOnItsOwn() {
-        let task = shell(["pendingRuntimeRequest": ["id": "r1", "kind": "command"],
-                          "delegatedFrom": ["environmentId": "env-mac", "threadId": "p1", "title": "Parent"]])
-        #expect(task.status == .pendingApproval)
-        #expect(!task.isShownUnderParent(shell(["id": "p1"])))
+    @Test func delegatedTaskAsksThroughItsParentLikeT3() {
+        let from: [String: Any] = ["environmentId": "env-mac", "threadId": "p1", "title": "Parent"]
+        let live: [String: Any] = ["status": "running", "activityRunStatus": "running", "delegatedFrom": from]
+        // An approval goes up to the parent, and the task stays listed under it.
+        let approval = shell(live.merging(["pendingRuntimeRequest": ["id": "r1", "kind": "command"]]) { $1 })
+        #expect(approval.delegatedRequest == .pendingApproval)
+        #expect(approval.isShownUnderParent(shell(["id": "p1"])))
+        // The coordinator answers the task's questions; only user-only ones go up.
+        let question = shell(live.merging(["pendingRuntimeRequest": ["id": "r2", "kind": "user_input"]]) { $1 })
+        #expect(question.delegatedRequest == nil)
+        let userOnly = shell(live.merging(["pendingRuntimeRequest": ["id": "r3", "kind": "user_input", "userOnly": true]]) { $1 })
+        #expect(userOnly.delegatedRequest == .awaitingInput)
+        // The parent then needs you and is off the Working shelf, like T3's pendingSubagentRequest.
+        var parent = shell(["id": "p1", "status": "running", "activityRunStatus": "running"])
+        #expect(parent.status.isBusy)
+        parent.childRequest = .pendingApproval
+        #expect(parent.status == .pendingApproval)
+        #expect(!parent.status.isBusy)
+    }
+
+    @Test func settledPlanWithBackgroundWorkWaitsOnYou() {
+        // isThreadWorking(): a settled plan run with an actionable plan is off the Working shelf,
+        // even while background work it doesn't wait on is still going.
+        let t = shell(["status": "idle", "interactionMode": "plan", "hasActionableProposedPlan": true,
+                       "latestRunId": "run-1", "pendingBackgroundTasks": [["kind": "subagent", "id": "n1"]]])
+        #expect(t.status == .planReady)
+        #expect(!t.status.isBusy)
     }
 
     @Test func providerNativeSubagentDoesNotForward() {

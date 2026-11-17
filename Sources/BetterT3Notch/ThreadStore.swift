@@ -441,6 +441,14 @@ final class ThreadStore: ObservableObject {
     /// A server is gone for good (or for longer than a blip): its threads leave the notch rather
     /// than sit there "running".
     private func dropThreads(of conn: Connection) {
+        // A machine that stays off fails a connect every 15 s: nothing to clear, nothing to redraw.
+        guard shell.keys.contains(where: { belongs($0, to: conn) })
+                || projects.keys.contains(where: { belongs($0, to: conn) })
+                || details.keys.contains(where: { belongs($0, to: conn) })
+                || sending.contains(where: { belongs($0, to: conn) })
+                || failed.keys.contains(where: { belongs($0, to: conn) })
+                || commandOutput.keys.contains(where: { belongs($0, to: conn) })
+                || outputWatch?.conn === conn else { return }
         shell = shell.filter { !belongs($0.key, to: conn) }
         projects = projects.filter { !belongs($0.key, to: conn) }
         details = details.filter { !belongs($0.key, to: conn) }
@@ -550,6 +558,22 @@ final class ThreadStore: ObservableObject {
                 seen.insert(parent)
                 if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
                 current = shell[parent]
+            }
+        }
+        // A task delegated from another machine asks through the thread that delegated it, and
+        // on up that thread's subagent chain (T3's delegated roll-up).
+        for task in shell.values {
+            guard let parent = delegatingParent(of: task) else { continue }
+            let runsIn = task.id.firstIndex(of: "/").map { String(task.id[..<$0]) } ?? local?.environmentId
+            guard runsIn != task.delegatedFromEnvironment else { continue }
+            let nested = childRequests[task.id]
+            guard let request = task.delegatedRequest == .pendingApproval ? .pendingApproval
+                    : nested ?? task.delegatedRequest else { continue }
+            var seen: Set<String> = []
+            var next: ShellThread? = parent
+            while let p = next, seen.insert(p.id).inserted {
+                if childRequests[p.id] != .pendingApproval { childRequests[p.id] = request }
+                next = p.isSubagent ? p.parentId.flatMap { shell[$0] } : nil
             }
         }
         // Only write where it changed: rewriting all ~400 structs per update was measurable.
@@ -1300,8 +1324,7 @@ final class TokenStore {
 
     private static func mint() async -> String? {
         await Task.detached {
-            let cli = NSString(string: "~/.t3/bin/t3").expandingTildeInPath
-            guard FileManager.default.isExecutableFile(atPath: cli) else { return nil }
+            guard let cli = RemoteAccess.localCLI else { return nil }
             let p = Process()
             p.executableURL = URL(fileURLWithPath: cli)
             p.arguments = ["auth", "session", "issue"]
@@ -1338,6 +1361,8 @@ struct ShellThread: Sendable {
     let isSubagent: Bool
     /// The thread (on any machine) that delegated this one, which T3 lists it under.
     var delegatedFromEnvironment, delegatedFromThread: String?
+    /// What this thread, a task delegated from another machine, asks the thread that delegated it.
+    let delegatedRequest: ThreadStatus?
     /// What this thread asks its parent for, if it's a live app-owned subagent with a request.
     let subagentRequest: ThreadStatus?
     /// T3's pill inputs (see `presentThreadShell` / `shellRuntime` in client-runtime models.ts).
@@ -1378,7 +1403,10 @@ struct ShellThread: Sendable {
         if pendingGuestMessages > 0 { return .guestRequest }
         if (runtimeStatus == "running" && !blockedOnThreadWait) || runtimeStatus == "waiting" { return .working }
         if ["preparing", "starting", "queued"].contains(runtimeStatus) { return .connecting }
-        if (runtimeStatus == "running" && blockedOnThreadWait) || backgroundHoldsCompletion { return .waiting }
+        if (runtimeStatus == "running" && blockedOnThreadWait) || backgroundHoldsCompletion {
+            // isThreadWorking(): a settled plan run waits on you, not on its background work.
+            return planMode && runSettled && hasActionableProposedPlan ? .planReady : .waiting
+        }
         if latestRunStatus == "failed", lastVisitedAt.map({ v in latestRunCompletedAt.map { $0 > v } ?? true }) ?? true {
             return .failed
         }
@@ -1390,11 +1418,11 @@ struct ShellThread: Sendable {
     mutating func refreshStatus() { status = resolveStatus() }
 
     /// T3 lists work delegated from a thread it can see (here or on another machine) under that
-    /// thread, not on its own; the parent reads as Waiting meanwhile. A delegated task that
-    /// needs you stays on its own, so its question never goes unseen.
+    /// thread, not on its own; the parent reads as Waiting meanwhile, and shows what the task
+    /// asks you (see `recompute`).
     func isShownUnderParent(_ parent: ShellThread?) -> Bool {
-        guard let parent, !parent.archived, !parent.deleted else { return false }
-        return NotchSummary.kind(of: status) != .question // approvals, input, guest messages
+        guard let parent else { return false }
+        return !parent.archived && !parent.deleted
     }
 
     /// The same thread, with its ids keyed for another machine (nil: this Mac, unchanged).
@@ -1640,6 +1668,15 @@ enum Incoming: Sendable {
                   t["creationSource"] as? String != "provider", childLive else { return nil }
             return kind == "user_input" ? .awaitingInput : .pendingApproval
         }()
+        // What a live delegated task asks the thread that delegated it (T3's delegated roll-up):
+        // approvals, and questions only the user can answer (the coordinator answers the rest).
+        let delegatedFrom = t["delegatedFrom"] as? [String: Any]
+        let delegatedRequest: ThreadStatus? = {
+            guard let kind = pendingKind, kind != "auth_refresh", delegatedFrom != nil,
+                  t["creationSource"] as? String != "provider", childLive else { return nil }
+            guard kind == "user_input" else { return .pendingApproval }
+            return pending?["userOnly"] as? Bool == true ? .awaitingInput : nil
+        }()
 
         let pr = (t["pullRequests"] as? [[String: Any]])?.last
         let prText = (pr?["number"] as? NSNumber).map { n in
@@ -1664,8 +1701,9 @@ enum Incoming: Sendable {
             deleted: t["deletedAt"] is String,
             parentId: lineage?["parentThreadId"] as? String,
             isSubagent: isSubagent,
-            delegatedFromEnvironment: (t["delegatedFrom"] as? [String: Any])?["environmentId"] as? String,
-            delegatedFromThread: (t["delegatedFrom"] as? [String: Any])?["threadId"] as? String,
+            delegatedFromEnvironment: delegatedFrom?["environmentId"] as? String,
+            delegatedFromThread: delegatedFrom?["threadId"] as? String,
+            delegatedRequest: delegatedRequest,
             subagentRequest: subagentRequest,
             hasPendingApprovals: hasPendingApprovals,
             hasPendingUserInput: hasPendingUserInput,

@@ -45,10 +45,15 @@ enum RemoteAccess {
     /// The linked machines, from T3's CLI (works whether or not the server is up). Nil if the
     /// CLI couldn't say, so the caller keeps what it had.
     static func linkedEnvironments() async -> [LinkedEnvironment]? {
-        let cli = NSString(string: "~/.t3/bin/t3").expandingTildeInPath
-        guard let out = await run(cli, ["environment", "list", "--json"], timeout: 30),
+        guard let cli = localCLI, let out = await run(cli, ["environment", "list", "--json"], timeout: 30),
               let list = try? JSONSerialization.jsonObject(with: out) as? [[String: Any]] else { return nil }
         return parseLinks(list)
+    }
+
+    /// T3's CLI on this Mac, where the app or its installer puts it.
+    nonisolated static var localCLI: String? {
+        ["~/.t3/bin/t3", "~/.local/bin/t3"].map { NSString(string: $0).expandingTildeInPath }
+            .first(where: FileManager.default.isExecutableFile(atPath:))
     }
 
     nonisolated static func parseLinks(_ list: [[String: Any]]) -> [LinkedEnvironment] {
