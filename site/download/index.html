@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Download Better T3 Notch</title>
+<meta name="description" content="Download Better T3 Notch, a Dynamic Island for T3 Code on your Mac. Free, open source, signed and notarized, and it updates itself.">
+<meta name="theme-color" content="#151517">
+<link rel="canonical" href="https://better-t3-notch.pages.dev/download/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Better T3 Notch">
+<meta property="og:title" content="Download Better T3 Notch">
+<meta property="og:description" content="A Dynamic Island for T3 Code on your Mac. Free, open source, signed and notarized.">
+<meta property="og:url" content="https://better-t3-notch.pages.dev/download/">
+<meta property="og:image" content="https://better-t3-notch.pages.dev/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Download Better T3 Notch">
+<meta name="twitter:image" content="https://better-t3-notch.pages.dev/assets/og.png">
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* T3 Code's tokens (t3.codes) */
+  --bg:#151517; --bg-2:#19191c; --card:#1e1e22; --card-2:#242428; --card-3:#2c2c31; --inset:#101012; --lip:#0b0b0d;
+  --fg:#f5f5f5; --fg-2:#d4d4d4; --fg-muted:#a3a3a3; --fg-dim:#8a8a8a; --fg-faint:#525252;
+  --line:#ffffff12; --line-strong:#ffffff21;
+  --accent:oklch(.68 .17 264); --accent-bg:oklch(.571 .21 264); --accent-lip:oklch(.42 .19 264); --accent-hover:oklch(.61 .21 264);
+  --ok:oklch(72% .16 150); --warn:oklch(76% .15 75);
+  --display:-apple-system,BlinkMacSystemFont,"Inter Variable","Inter","Segoe UI",system-ui,sans-serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Inter Variable","Inter","Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  --mac:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+  --hand:"Caveat","Bradley Hand","Segoe Print",cursive;
+  --rounded:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --ease:cubic-bezier(.23,1,.32,1);
+  --spring:cubic-bezier(.22,1.25,.36,1);
+  --notch:cubic-bezier(.2,1.12,.38,1);
+  /* the notch's live theme (T3 blue for this variant) */
+  --n-accent:oklch(.571 .21 264); --n-on-accent:#fff; --n-working:#7dd3fc;
+  --n-fill:rgba(255,255,255,.1); --n-fill-2:rgba(255,255,255,.16);
+}
+*{box-sizing:border-box;margin:0}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:100px;background:var(--bg)}
+body{background:var(--bg);color:var(--fg);font:17px/1.55 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:clip}
+a{color:inherit}
+img{max-width:100%;display:block}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent}
+::selection{background:var(--accent-bg);color:#fff}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+.narrow{max-width:728px;margin:0 auto;padding:0 24px}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:3px;border-radius:12px}
+
+/* ---------- header ---------- */
+.top{position:sticky;top:0;z-index:50;transition:background .3s,box-shadow .3s}
+.top.scrolled{background:rgba(21,21,23,.8);backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2);box-shadow:0 1px 0 var(--line)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;max-width:1240px}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;font:400 18px/1 var(--display);letter-spacing:-.02em}
+.brand b{font-weight:700}
+.brand img{width:34px;height:34px;border-radius:10px;box-shadow:0 0 0 1px var(--line-strong),0 6px 16px -6px #000}
+.nav{display:flex;align-items:center;gap:8px}
+.nav .link{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;border-radius:10px;font-weight:500;font-size:15px;text-decoration:none;color:var(--fg-2);transition:background .2s,color .2s}
+.nav .link svg{width:18px;height:18px}
+@media (hover:hover){.nav .link:hover{background:var(--card);color:var(--fg)}}
+
+/* ---------- tactile buttons ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:54px;padding:0 24px;border-radius:12px;font:600 16.5px/1 var(--sans);text-decoration:none;white-space:nowrap;
+  transition:transform .14s var(--ease),box-shadow .14s var(--ease),background .2s;user-select:none;-webkit-user-select:none}
+.btn svg{width:20px;height:20px;flex:none}
+.btn-p{background:var(--accent-bg);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 3px 0 var(--accent-lip)}
+.btn-p:active{transform:translateY(2px) scale(.99);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 1px 0 var(--accent-lip)}
+.btn-s{background:var(--card);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line-strong),0 3px 0 var(--lip)}
+.btn-s:active{transform:translateY(2px) scale(.99);box-shadow:inset 0 0 0 1px var(--line-strong),0 1px 0 var(--lip)}
+.btn-p .tag{font:600 12px/1 var(--sans);padding:5px 7px;border-radius:6px;background:rgba(255,255,255,.18);color:#fff}
+.btn-s .tag{font:600 12px/1 var(--sans);padding:5px 7px;border-radius:6px;background:rgba(255,255,255,.08);color:var(--fg-muted);border:1px solid var(--line)}
+@media (hover:hover){.btn-p:hover{background:var(--accent-hover)}.btn-s:hover{background:var(--card-3)}}
+.btn.sm{height:40px;padding:0 15px;border-radius:10px;font-size:14.5px;gap:8px}
+.btn.sm svg{width:17px;height:17px}
+
+.btn-p:focus-visible{outline:2.5px solid #fff;outline-offset:4px}
+.reqs{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:24px}
+.reqs span{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-weight:500;font-size:14px;color:var(--fg-2)}
+.reqs svg{width:16px;height:16px;color:var(--ok)}
+footer{margin-top:72px;padding:40px 0 50px;border-top:1px solid var(--line);font-size:14.5px;color:var(--fg-dim)}
+footer .wrap{max-width:1240px;display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap}
+footer p{max-width:520px}
+footer a{color:var(--fg-2);font-weight:500}
+footer p a{white-space:nowrap}
+footer nav{display:flex;gap:20px;flex-wrap:wrap;font-weight:500}
+footer nav a{text-decoration:none}
+.nav .link[aria-current="page"]{color:var(--fg);background:var(--card)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- top: the download itself ---------- */
+.dl{position:relative;isolation:isolate;text-align:center;padding:56px 0 20px}
+.dl::before{content:"";position:absolute;inset:-64px 0 0;z-index:-1;pointer-events:none;
+  background:radial-gradient(ellipse 50% 60% at 50% 0%,oklch(.5 .2 264 / .32),transparent 70%),radial-gradient(ellipse 30% 40% at 12% 10%,oklch(.45 .17 278 / .22),transparent 70%)}
+.appicon{width:104px;height:104px;margin:0 auto 26px;border-radius:23px;transform:rotate(-4deg);box-shadow:0 0 0 1px var(--line-strong),0 26px 70px -12px oklch(.571 .21 264 / .65)}
+.dl h1{font:700 clamp(38px,6vw,60px)/1.04 var(--display);letter-spacing:-.035em;text-wrap:balance}
+.dl h1 .b{color:var(--fg-muted)}
+.meta{margin-top:14px;font:500 16px/1.4 var(--rounded);color:var(--fg-muted);min-height:1.4em}
+.meta b{color:var(--fg);font-weight:600}
+.meta .dot{margin:0 3px;color:var(--fg-faint)}
+.meta .m{white-space:nowrap}
+
+.card{margin:34px auto 0;max-width:560px;padding:26px 26px 22px;border-radius:20px;background:var(--card);border:1px solid var(--line-strong);box-shadow:0 30px 70px -36px #000;text-align:left}
+.state{display:flex;align-items:center;gap:14px}
+.state .ic{flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--inset);border:1px solid var(--line);color:var(--accent);overflow:hidden}
+.state .ic svg{width:22px;height:22px}
+.state.going .ic svg{animation:drop 1.4s var(--ease) infinite}
+@keyframes drop{0%{transform:translateY(-22px);opacity:0}35%{transform:none;opacity:1}75%{transform:none;opacity:1}100%{transform:translateY(22px);opacity:0}}
+.state.ok .ic{color:var(--ok)}
+.state h2{font:650 19px/1.25 var(--display);letter-spacing:-.015em}
+.state p{margin-top:3px;font:500 14.5px/1.4 var(--rounded);color:var(--fg-muted)}
+.chipline{display:flex;align-items:center;gap:9px;margin-top:18px;padding:11px 14px;border-radius:12px;background:var(--inset);border:1px solid var(--line);font:500 14.5px/1.35 var(--rounded);color:var(--fg-2)}
+.chipline svg{width:16px;height:16px;flex:none;color:var(--ok)}
+.chipline:empty{display:none}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.actions .btn{flex:1 1 auto}
+.direct{margin-top:14px;font:500 14px/1.4 var(--rounded);color:var(--fg-dim)}
+.direct a{color:var(--accent);font-weight:600}
+.direct:empty{display:none}
+.skeleton{display:inline-block;width:220px;max-width:70%;height:1em;border-radius:6px;background:linear-gradient(90deg,var(--card-2),var(--card-3),var(--card-2));background-size:200% 100%;animation:shimmer 1.4s linear infinite;vertical-align:middle}
+@keyframes shimmer{to{background-position:-200% 0}}
+
+/* ---------- steps ---------- */
+.sec{padding-top:110px;text-align:center}
+.h2{font:700 clamp(32px,4vw,46px)/1.05 var(--display);letter-spacing:-.032em;text-wrap:balance}
+.h2 .b{color:var(--fg-muted)}
+.lead{margin:14px auto 0;max-width:520px;font:500 17px/1.5 var(--rounded);color:var(--fg-muted);text-wrap:balance}
+.steps{list-style:none;padding:0;margin:36px auto 0;max-width:820px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:left}
+.steps li{position:relative;padding:20px 20px 22px;border-radius:16px;background:var(--card);border:1px solid var(--line)}
+.steps li>b{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--accent-bg);color:#fff;font:700 14px/1 var(--rounded);margin-bottom:14px}
+.steps strong{display:block;font:650 17px/1.25 var(--display);letter-spacing:-.015em}
+.steps span{display:block;margin-top:5px;font:500 14.5px/1.45 var(--rounded);color:var(--fg-muted)}
+.hand{display:inline-block;margin-top:22px;font:600 22px/1 var(--hand);color:var(--fg-2);transform:rotate(-3deg)}
+.trust{margin-top:18px;font:500 14.5px/1.5 var(--rounded);color:var(--fg-dim)}
+
+/* ---------- versions ---------- */
+.versions{max-width:760px;margin:36px auto 0;text-align:left;display:grid;gap:14px}
+.rel{border-radius:18px;background:var(--card);border:1px solid var(--line);padding:22px 24px}
+.rel-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
+.rel-h h3{font:700 22px/1.2 var(--display);letter-spacing:-.02em}
+.badge{font:600 12px/1 var(--rounded);padding:5px 8px;border-radius:999px;background:oklch(.571 .21 264 / .18);color:var(--accent);border:1px solid oklch(.571 .21 264 / .35)}
+.badge.pre{background:rgba(252,211,77,.12);color:#fcd34d;border-color:rgba(252,211,77,.3)}
+.rel-h time{font:500 14px/1 var(--rounded);color:var(--fg-dim);margin-left:auto}
+.assets{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.assets .btn small{font:500 12.5px/1 var(--rounded);color:var(--fg-dim);margin-left:2px}
+.btn-p.sm small{color:rgba(255,255,255,.75)!important}
+.notes{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font:400 15px/1.55 var(--sans);color:var(--fg-2)}
+.notes h4{font:650 13px/1 var(--rounded);text-transform:uppercase;letter-spacing:.06em;color:var(--fg-dim);margin:14px 0 8px}
+.notes h4:first-child{margin-top:0}
+.notes ul{padding-left:20px;display:grid;gap:5px}
+.notes li::marker{color:var(--fg-faint)}
+.notes p{margin:8px 0}
+.notes a{color:var(--accent)}
+.notes code{font:13px var(--mono);padding:1px 5px;border-radius:5px;background:var(--inset);border:1px solid var(--line)}
+.older{margin-top:4px}
+.older>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;font:600 15px/1 var(--rounded);color:var(--fg-muted)}
+.older>summary::-webkit-details-marker{display:none}
+@media (hover:hover){.older>summary:hover{background:var(--card);color:var(--fg)}}
+.older[open]>summary{margin-bottom:12px}
+.older .plus{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--inset);border:1px solid var(--line);font:600 15px/1 var(--rounded);transition:transform .25s var(--ease)}
+.older[open] .plus{transform:rotate(45deg)}
+.older>div{display:grid;gap:14px}
+.allrel{margin-top:22px;font:500 15px/1.4 var(--rounded)}
+.allrel a{color:var(--accent);font-weight:600}
+.empty{padding:24px;border-radius:18px;border:1px dashed var(--line-strong);color:var(--fg-muted);font:500 15px/1.5 var(--rounded);text-align:center}
+
+@media (max-width:720px){.steps{grid-template-columns:1fr}}
+@media (max-width:560px){
+  .wrap,.narrow{padding:0 18px}
+  .brand{font-size:17px;gap:9px}
+  .brand img{width:32px;height:32px}
+  .nav .link span,.nav .faqlink{display:none}
+  .nav .link{padding:10px;min-width:40px;min-height:40px;justify-content:center}
+  .dl{padding-top:36px}
+  .appicon{width:84px;height:84px;border-radius:19px}
+  .card{padding:20px 18px 18px;border-radius:18px}
+  .actions .btn{width:100%}
+  .rel{padding:18px}
+  .rel-h time{margin-left:0;width:100%}
+  .sec{padding-top:84px}
+  footer nav a{padding:10px 0}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="gh" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
+    <symbol id="qmark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M9.2 9.2a2.9 2.9 0 0 1 5.6 1c0 1.9-2.8 2.6-2.8 2.6"/><path d="M12 17h.01"/></g></symbol>
+    <symbol id="dl" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></g></symbol>
+    <symbol id="ok" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  </defs>
+</svg>
+
+<header class="top" id="masthead">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Better T3 Notch home"><img src="/assets/icon.png" alt="" width="38" height="38"><span><b>Better T3</b> Notch</span></a>
+    <nav class="nav">
+      <a class="link" href="/download/" aria-current="page" aria-label="Download"><svg><use href="#dl"/></svg><span>Download</span></a>
+      <a class="link faqlink" href="/#faq" aria-label="FAQs"><svg><use href="#qmark"/></svg><span>FAQs</span></a>
+      <a class="btn btn-s sm" href="https://github.com/notkainoa/better-t3-notch"><svg><use href="#gh"/></svg>GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="dl">
+    <div class="wrap">
+      <img class="appicon" src="/assets/icon.png" alt="" width="104" height="104">
+      <h1>Download Better T3 Notch</h1>
+      <p class="meta" id="meta"><span class="skeleton" aria-hidden="true"></span><span class="sr">Finding the latest version…</span></p>
+
+      <div class="card" id="card">
+        <div class="state" id="state" role="status" aria-live="polite">
+          <span class="ic" aria-hidden="true"><svg><use href="#dl"/></svg></span>
+          <div><h2 id="stateTitle">Finding the latest version…</h2><p id="stateSub">One moment.</p></div>
+        </div>
+        <p class="chipline" id="chipline"></p>
+        <div class="actions" id="actions">
+          <a class="btn btn-p" id="dlBtn" href="https://github.com/notkainoa/better-t3-notch/releases/latest/download/BetterT3Notch.dmg"><svg><use href="#dl"/></svg><span id="dlLabel">Download</span></a>
+          <a class="btn btn-s" href="https://github.com/notkainoa/better-t3-notch"><svg><use href="#gh"/></svg>GitHub</a>
+        </div>
+        <p class="direct" id="direct"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="stepsTitle">
+    <div class="wrap">
+      <h2 class="h2" id="stepsTitle">Then three steps.</h2>
+      <ol class="steps">
+        <li><b aria-hidden="true">1</b><strong>Open the DMG</strong><span>It's in your Downloads folder. Double-click it.</span></li>
+        <li><b aria-hidden="true">2</b><strong>Drag it to Applications</strong><span>The window has the Applications shortcut right next to the app.</span></li>
+        <li><b aria-hidden="true">3</b><strong>Open it</strong><span>Keep T3 Code running. On first launch it finds T3 Code and connects by itself.</span></li>
+      </ol>
+      <span class="hand" aria-hidden="true">that's it, the notch shows up</span>
+      <div class="reqs">
+        <span><svg class="i"><use href="#ok"/></svg>macOS 14+</span>
+        <span><svg class="i"><use href="#ok"/></svg>T3 Code desktop running</span>
+        <span><svg class="i"><use href="#ok"/></svg>Apple silicon or Intel</span>
+      </div>
+      <p class="trust">Signed with a Developer ID and notarized by Apple. It updates itself (Settings → General → Updates).</p>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="verTitle">
+    <div class="wrap">
+      <h2 class="h2" id="verTitle">All versions</h2>
+      <p class="lead">Every release, with what changed.</p>
+      <div class="versions" id="versions"><div class="empty">Loading releases…</div></div>
+      <p class="allrel"><a href="https://github.com/notkainoa/better-t3-notch/releases">All releases on GitHub ↗</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Better T3 Notch is made by <a href="https://github.com/notkainoa">Kainoa Newton</a>. It started as a fork of <a href="https://github.com/JosueRhea/t3code-notch">t3code-notch</a> by Josue A. Not affiliated with T3 Tools. Provider logos belong to their owners.</p>
+    <nav><a href="/">Home</a><a href="https://github.com/notkainoa/better-t3-notch">GitHub</a><a href="https://github.com/t3tools/t3code">T3 Code</a><a href="/#faq">FAQs</a></nav>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const REPO = 'notkainoa/better-t3-notch';
+  const API = `https://api.github.com/repos/${REPO}/releases`;
+  const LATEST_URL = `https://github.com/${REPO}/releases/latest/download/BetterT3Notch.dmg`;
+  const RELEASES_URL = `https://github.com/${REPO}/releases`;
+  const CACHE_KEY = 'bt3n-releases-v1', CACHE_MS = 10 * 60 * 1000;
+  const $ = s => document.querySelector(s);
+  const params = new URLSearchParams(location.search);
+
+  /* header shadow */
+  const top = $('#masthead');
+  const onScroll = () => top.classList.toggle('scrolled', scrollY > 10);
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+
+  /* ---------- what is this machine ---------- */
+  const ua = navigator.userAgent || '';
+  const touchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1; // iPadOS pretends to be a Mac
+  const isApple = /iPhone|iPad|iPod/.test(ua) || touchMac;
+  const isMac = !isApple && (/Macintosh|Mac OS X/.test(ua) || navigator.userAgentData?.platform === 'macOS');
+
+  async function detectArch() {
+    const forced = (params.get('arch') || '').toLowerCase();
+    if (/^(arm|arm64|apple|aarch64)$/.test(forced)) return 'arm';
+    if (/^(x86|x86_64|x64|intel)$/.test(forced)) return 'intel';
+    if (!isMac) return 'unknown';
+    try {
+      if (navigator.userAgentData?.getHighEntropyValues) {
+        const { architecture } = await navigator.userAgentData.getHighEntropyValues(['architecture']);
+        if (architecture === 'arm') return 'arm';
+        if (architecture === 'x86') return 'intel';
+      }
+    } catch (e) {}
+    try {
+      const gl = document.createElement('canvas').getContext('webgl');
+      const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      const r = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+      if (/Apple (M\d|GPU)/i.test(r)) return 'arm';
+      if (/Intel|AMD|Radeon/i.test(r)) return 'intel';
+    } catch (e) {}
+    return 'unknown';
+  }
+
+  /* ---------- releases ---------- */
+  async function getReleases() {
+    try {
+      const c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+      if (c && Date.now() - c.t < CACHE_MS && Array.isArray(c.data)) return c.data;
+    } catch (e) {}
+    const res = await fetch(API, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!res.ok) throw new Error('GitHub API ' + res.status);
+    const data = (await res.json()).filter(r => r && !r.draft);
+    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), data })); } catch (e) {}
+    return data;
+  }
+  const appAssets = rel => (rel.assets || []).filter(a => /\.(dmg|zip)$/i.test(a.name || ''));
+  const chipOf = name => /arm64|aarch64|apple[-_ ]?silicon/i.test(name) ? 'arm' : /x86[-_]?64|\bx64\b|intel/i.test(name) ? 'intel' : 'universal';
+  const preferDmg = list => list.find(a => /\.dmg$/i.test(a.name)) || list[0];
+  function pick(rel, arch) {
+    const assets = appAssets(rel);
+    const universal = preferDmg(assets.filter(a => chipOf(a.name) === 'universal'));
+    const byChip = c => preferDmg(assets.filter(a => chipOf(a.name) === c));
+    const arm = byChip('arm'), intel = byChip('intel');
+    if ((arm || intel) && arch !== 'unknown' && byChip(arch)) return { asset: byChip(arch), kind: 'chip', arch, other: arch === 'arm' ? (intel || universal) : (arm || universal) };
+    if (universal) return { asset: universal, kind: 'universal', arch };
+    if (arm || intel) return { asset: arm || intel, kind: 'choose', arch, other: arm ? intel : null };
+    return null;
+  }
+  const ver = rel => String(rel.tag_name || rel.name || '').replace(/^v/i, '');
+  const mb = b => b ? `${(b / 1e6).toFixed(1)} MB` : '';
+  const day = d => { try { return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }); } catch (e) { return ''; } };
+  const chipName = c => c === 'arm' ? 'Apple silicon' : c === 'intel' ? 'Intel' : 'Universal';
+
+  /* a tiny, safe markdown renderer for release notes */
+  const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  function inline(t) {
+    let h = esc(t);
+    h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+    h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, text, url) => `<a href="${url}" rel="noopener">${text}</a>`);
+    return h;
+  }
+  function md(src) {
+    const body = String(src || '')
+      .replace(/<!--[\s\S]*?-->/g, '')                      // hidden HTML comments (bots)
+      .replace(/^\s*-{3,}\s*$[\s\S]*?This PR was generated with[^\n]*$/m, '')  // release-please footer
+      .replace(/^.*This PR was generated with.*$/gm, '')
+      .replace(/ ?\(\[[0-9a-f]{7,40}\]\([^)]*\)\)/g, '')  // commit-hash links: noise
+      .replace(/\(\[#(\d+)\]\(([^)]+)\)\)/g, '([#$1]($2))');
+    const out = []; let list = null, para = [];
+    const flushP = () => { if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; } };
+    const flushL = () => { if (list) { out.push(`<ul>${list.map(i => `<li>${inline(i)}</li>`).join('')}</ul>`); list = null; } };
+    for (const raw of body.split(/\r?\n/)) {
+      const line = raw.trimEnd();
+      const h = /^(#{1,6})\s+(.*)$/.exec(line), li = /^\s*[*-]\s+(.*)$/.exec(line);
+      if (h) {
+        flushP(); flushL();
+        // release-please's "## [0.3.0](compare…) (date)" repeats the card header, so skip it
+        if (h[1].length <= 2 && /\d+\.\d+\.\d+/.test(h[2])) continue;
+        out.push(`<h4>${inline(h[2].replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'))}</h4>`);
+      } else if (li) { flushP(); (list = list || []).push(li[1]); }
+      else if (!line.trim()) { flushP(); flushL(); }
+      else { flushL(); para.push(line.trim()); }
+    }
+    flushP(); flushL();
+    return out.join('');
+  }
+
+  /* ---------- rendering ---------- */
+  const state = $('#state'), title = $('#stateTitle'), sub = $('#stateSub'), chipline = $('#chipline'), direct = $('#direct'), dlBtn = $('#dlBtn'), dlLabel = $('#dlLabel'), meta = $('#meta');
+  function setState(kind, t, s) { state.className = 'state ' + kind; title.textContent = t; sub.textContent = s; }
+  function chipText(p) {
+    const ok = '<svg aria-hidden="true"><use href="#ok"/></svg>';
+    if (p.kind === 'universal') {
+      if (p.arch === 'arm') return ok + 'Universal build: runs natively on your Apple silicon Mac.';
+      if (p.arch === 'intel') return ok + 'Universal build: runs natively on your Intel Mac.';
+      return ok + 'Universal build: works on Apple silicon and Intel Macs.';
+    }
+    if (p.kind === 'chip') return ok + `Built for ${chipName(p.arch)}, which matches your Mac.`;
+    return ok + 'There are separate builds for Apple silicon and Intel. Pick yours below.';
+  }
+
+  let fired = false;
+  function autoDownload(url, label) {
+    if (fired || !isMac) return;
+    // don't start the same file twice if someone reloads right away
+    try { const last = JSON.parse(sessionStorage.getItem('bt3n-auto') || 'null'); if (last && last.url === url && Date.now() - last.t < 60000) return; } catch (e) {}
+    fired = true;
+    setTimeout(() => {
+      try { sessionStorage.setItem('bt3n-auto', JSON.stringify({ url, t: Date.now() })); } catch (e) {}
+      location.href = url;
+    }, 800);
+    setState('going', `Downloading ${label}…`, 'It should land in your Downloads folder in a moment.');
+    direct.innerHTML = `Didn't start? <a href="${esc(url)}">Download it directly</a>.`;
+  }
+
+  function showLatest(rel, p) {
+    const v = ver(rel);
+    meta.innerHTML = [`Version <b>${esc(v)}</b>`, esc(day(rel.published_at)), esc(mb(p.asset.size)), 'macOS 14+'].filter(Boolean).map(x => `<span class="m">${x}</span>`).join(' <span class="dot">·</span> ');
+    dlBtn.href = p.asset.browser_download_url;
+    dlLabel.textContent = `Download ${v}` + (p.kind !== 'universal' ? ` for ${chipName(p.kind === 'chip' ? p.arch : chipOf(p.asset.name))}` : '');
+    chipline.innerHTML = chipText(p);
+    if (p.other) direct.innerHTML = `${p.kind === 'choose' ? 'Intel Mac?' : `Not ${p.arch === 'arm' ? 'an Apple silicon' : 'an Intel'} Mac?`} <a href="${esc(p.other.browser_download_url)}">Get the ${esc(chipName(chipOf(p.other.name)))} build</a>.`;
+    if (!isMac) {
+      setState('ok', 'Better T3 Notch is a macOS app', 'Open this page on your Mac to install it, or grab the DMG here and move it over.');
+      return;
+    }
+    if (p.kind === 'choose') { setState('ok', `Better T3 Notch ${v} is ready`, 'Pick the build for your Mac.'); return; }
+    const ready = `Better T3 Notch ${v}`;
+    autoDownload(p.asset.browser_download_url, ready);
+    if (!fired) setState('ok', `${ready} is ready`, 'Click Download to get it.');
+  }
+
+  function showFallback() {
+    meta.innerHTML = `The latest version<span class="dot">·</span>macOS 14+`;
+    dlBtn.href = LATEST_URL; dlLabel.textContent = 'Download the latest version';
+    chipline.innerHTML = '<svg aria-hidden="true"><use href="#ok"/></svg>Universal build: works on Apple silicon and Intel Macs.';
+    if (isMac) {
+      setState('ok', 'Better T3 Notch is ready', "We couldn't reach GitHub for the details, but the download works.");
+      direct.innerHTML = `Or see <a href="${RELEASES_URL}">every release on GitHub</a>.`;
+    } else {
+      setState('ok', 'Better T3 Notch is a macOS app', 'Open this page on your Mac to install it, or grab the DMG here and move it over.');
+      direct.innerHTML = `Or see <a href="${RELEASES_URL}">every release on GitHub</a>.`;
+    }
+    $('#versions').innerHTML = `<div class="empty">Couldn't load the release list just now. <a href="${RELEASES_URL}" style="color:var(--accent);font-weight:600">See every release on GitHub</a>.</div>`;
+  }
+
+  function relCard(rel, isLatest) {
+    const v = ver(rel), assets = appAssets(rel);
+    const btns = assets.map((a, i) => {
+      const c = chipOf(a.name), kind = /\.zip$/i.test(a.name) ? 'ZIP' : 'DMG';
+      const label = c === 'universal' ? `Download ${kind}` : `${chipName(c)} ${kind}`;
+      return `<a class="btn ${isLatest && i === 0 ? 'btn-p' : 'btn-s'} sm" href="${esc(a.browser_download_url)}" aria-label="Download ${esc(v)}, ${esc(label)}, ${esc(mb(a.size))}"><svg aria-hidden="true"><use href="#dl"/></svg>${esc(label)}<small>${esc(mb(a.size))}</small></a>`;
+    }).join('') || `<a class="btn btn-s sm" href="${esc(rel.html_url || RELEASES_URL)}">On GitHub</a>`;
+    const notes = md(rel.body);
+    return `<article class="rel" aria-labelledby="rel-${esc(v)}">
+      <div class="rel-h"><h3 id="rel-${esc(v)}">${esc(v)}</h3>${isLatest ? '<span class="badge">Latest</span>' : ''}${rel.prerelease ? '<span class="badge pre">Pre-release</span>' : ''}<time datetime="${esc(rel.published_at || '')}">${esc(day(rel.published_at))}</time></div>
+      <div class="assets">${btns}</div>
+      ${notes ? `<div class="notes">${notes}</div>` : ''}
+    </article>`;
+  }
+  function showVersions(rels, latest) {
+    if (!rels.length) { $('#versions').innerHTML = '<div class="empty">No releases yet.</div>'; return; }
+    const cards = rels.map(r => relCard(r, r === latest));
+    const head = cards.slice(0, 2).join(''), rest = cards.slice(2);
+    $('#versions').innerHTML = head + (rest.length ? `<details class="older"><summary><span class="plus" aria-hidden="true">+</span>Show ${rest.length} older version${rest.length > 1 ? 's' : ''}</summary><div>${rest.join('')}</div></details>` : '');
+  }
+
+  (async () => {
+    const archP = detectArch();
+    let rels;
+    try { rels = await getReleases(); } catch (e) { showFallback(); return; }
+    const latest = rels.find(r => !r.prerelease && appAssets(r).length);
+    if (!latest) { showFallback(); return; }
+    const p = pick(latest, await archP);
+    if (!p) { showFallback(); return; }
+    showLatest(latest, p);
+    showVersions(rels, latest);
+  })();
+})();
+</script>
+</body>
+</html>
