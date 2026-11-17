@@ -4,6 +4,8 @@
 
 A Dynamic Island–style notch for [T3 Code](https://github.com/t3tools/t3code) on macOS. See what your agents are doing, answer them, and stop them, without leaving the app you're in.
 
+**Website:** [better-t3-notch.pages.dev](https://better-t3-notch.pages.dev)
+
 Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wins over work in progress:
 
 | What's going on | Icons | It says |
@@ -114,6 +116,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 - `scripts/screenshots.sh` regenerates `docs/screenshots/` (run it from an empty desktop).
 - `scripts/extract-logos.py /path/to/t3code` refreshes the provider logos from T3 Code's sources.
 - `scripts/make-icon.swift` regenerates the app icon ("Midnight") and `docs/icon.png`.
+- `site/` is the website. Cloudflare Pages deploys it: pushes to `main` update production, and PRs that touch `site/` get a preview link.
 
 Better T3 Notch started as a fork of [t3code-notch](https://github.com/JosueRhea/t3code-notch) by Josue A.
 
