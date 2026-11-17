@@ -357,9 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         }) {
             monitors.append(m)
         }
-        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(cmdKey | shiftKey)) { [weak self] in
-            self?.toggleKeyboardMode()
-        }
+        registerShortcut(Shortcut.saved)
 
         // New command started (or finished) under the cursor: follow it.
         store.$threads.receive(on: RunLoop.main).sink { [weak self] _ in self?.syncOutputWatch() }
@@ -373,6 +371,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     }
 
     private var hotKey: HotKey?
+
+    @discardableResult
+    private func registerShortcut(_ shortcut: Shortcut?) -> Bool {
+        hotKey = nil // let go of the old one first: the new one may be the same keys
+        guard let shortcut else { return true } // cleared: no shortcut at all
+        hotKey = HotKey(shortcut) { [weak self] in self?.toggleKeyboardMode() }
+        return hotKey != nil
+    }
     private var cancellables: Set<AnyCancellable> = []
 
     /// One live command-output stream, for whichever notch is peeking at a running row.
@@ -380,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         store.watchOutput(of: controllers.lazy.compactMap(\.peekRow).first)
     }
 
-    /// ⌘⇧Space: open the notch under the mouse (or the first one), or close it.
+    /// The keyboard shortcut (⇧⌘Space unless changed or cleared in Settings): open the notch under the mouse (or the first one), or close it.
     private func toggleKeyboardMode() {
         if let focused = controllers.first(where: \.isFocused) {
             focused.unfocus()
@@ -448,6 +454,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     func captureChanged() {
         controllers.forEach { $0.applyCaptureSetting() }
     }
+
+    func setShortcut(_ shortcut: Shortcut?) -> Bool {
+        guard registerShortcut(shortcut) else {
+            // Taken: keep the old one, but stay out of the way while the recorder is still listening.
+            if recordingShortcut { hotKey = nil } else { registerShortcut(Shortcut.saved) }
+            return false
+        }
+        Shortcut.saved = shortcut
+        return true
+    }
+
+    func shortcutRecording(_ recording: Bool) {
+        // While recording, the live shortcut steps aside so pressing it again can be captured.
+        recordingShortcut = recording
+        if recording { hotKey = nil } else if hotKey == nil { registerShortcut(Shortcut.saved) }
+    }
+
+    private var recordingShortcut = false
 
     func panelsNeedRebuild() {
         DispatchQueue.main.async { self.rebuildPanels() }
