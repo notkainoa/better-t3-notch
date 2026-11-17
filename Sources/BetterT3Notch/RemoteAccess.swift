@@ -193,9 +193,13 @@ enum RemoteAccess {
         var hosts: [Host] = []
         if let known = TokenFiles.host(for: link.environmentId) { hosts.append(known) }
         if let status = await tailscaleStatus() {
-            hosts += candidates(label: link.label, tailscaleStatus: status).filter { !hosts.contains($0) }
+            // Machines already known to be another environment go last, so a label that doesn't
+            // match its Tailscale name still gets found on a busy tailnet.
+            let elsewhere = TokenFiles.addressesKnown(except: link.environmentId)
+            let found = candidates(label: link.label, tailscaleStatus: status).filter { !hosts.contains($0) }
+            hosts += found.filter { !elsewhere.contains($0.address) } + found.filter { elsewhere.contains($0.address) }
         }
-        for host in hosts.prefix(6) {
+        for host in hosts {
             guard let visit = await visit(host, want: link.environmentId) else { continue }
             if let env = visit.environmentId { TokenFiles.setHost(host, for: env) }
             guard visit.environmentId == link.environmentId else { continue }
@@ -278,6 +282,13 @@ enum TokenFiles {
         let parts = s.split(separator: "\n").map(String.init)
         guard let address = parts.first, !address.isEmpty else { return nil }
         return .init(address: address, name: parts.count > 1 ? parts[1] : address)
+    }
+
+    /// The addresses of the machines recorded as some other environment.
+    static func addressesKnown(except environmentId: String) -> Set<String> {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        return Set(files.filter { $0.pathExtension == "host" && $0.deletingPathExtension().lastPathComponent != environmentId }
+            .compactMap { host(for: $0.deletingPathExtension().lastPathComponent)?.address })
     }
 
     static func setHost(_ host: RemoteAccess.Host, for environmentId: String) {

@@ -30,10 +30,17 @@ final class Connection {
     let label: String
     weak var delegate: ConnectionDelegate?
 
+    /// The shell snapshot arrived on this socket: the threads shown for this machine are current.
     private(set) var connected = false
+    /// When this machine's threads stopped being current (the first drop since its last snapshot).
+    private(set) var downSince: Date?
     private(set) var environmentId: String?
     private(set) var commandOutputStreaming = false
     var isOpen: Bool { socket != nil }
+    /// The socket is up and the server is answering, even if the snapshot is still on its way.
+    var answering: Bool {
+        socket != nil && heardOnSocket && Date().timeIntervalSince(lastHeard) < pingEvery * 3
+    }
 
     /// Request ids of this socket's streams. Thread ids here are the server's own.
     private(set) var shellRequestId = ""
@@ -51,6 +58,8 @@ final class Connection {
     private var pingTimer: Timer?
     private var retryDelay: TimeInterval = 1
     private var lastHeard = Date()
+    private var heardOnSocket = false
+    private var openedAt = Date()
     private var closed = false
 
     init(remoteId: String?, label: String, pingEvery: TimeInterval, silenceLimit: TimeInterval?,
@@ -83,6 +92,7 @@ final class Connection {
         generation += 1
         teardown()
         // Same as a drop: whatever was waiting on the old socket won't hear back.
+        if downSince == nil { downSince = Date() }
         connected = false
         delegate?.connectionDidDrop(self, status: nil)
         connect()
@@ -119,6 +129,8 @@ final class Connection {
         requestThreads = [:]
         commandThreads = [:]
         lastHeard = Date()
+        openedAt = Date()
+        heardOnSocket = false
         task.resume()
 
         shellRequestId = send(tag: "orchestration.subscribeShell", payload: [:])
@@ -131,9 +143,13 @@ final class Connection {
                 guard let self, gen == self.generation else { return }
                 // The server answers every ping; this long without a frame means the route is gone
                 // (a tunnel dropped, or the network changed while asleep).
-                // The first frame is the whole shell snapshot (MBs through a tunnel): give it time.
-                if let limit = self.silenceLimit.map({ self.connected ? $0 : max($0, 90) }),
-                   Date().timeIntervalSince(self.lastHeard) > limit {
+                // Before that, the shell snapshot (MBs through a tunnel) gets 90 s from the open,
+                // however many pongs come back meanwhile: a subscription that never answers is
+                // as dead as a silent socket.
+                let now = Date()
+                if let limit = self.silenceLimit,
+                   self.connected ? now.timeIntervalSince(self.lastHeard) > limit
+                                  : now.timeIntervalSince(self.openedAt) > max(limit, 90) {
                     log.notice("silent, reconnecting: \(self.label, privacy: .public)")
                     self.scheduleReconnect(gen, status: nil)
                     return
@@ -158,8 +174,11 @@ final class Connection {
                 Task { @MainActor in
                     guard let self, gen == self.generation else { return }
                     self.lastHeard = Date()
-                    if !self.connected {
+                    self.heardOnSocket = true
+                    // Pongs only prove the route; the threads are current once the snapshot is in.
+                    if !self.connected, case .chunk(let id, _)? = incoming, id == self.shellRequestId {
                         self.connected = true
+                        self.downSince = nil
                         self.retryDelay = 1
                         if self.remoteId != nil { log.notice("connected: \(self.label, privacy: .public)") }
                     }
@@ -187,6 +206,7 @@ final class Connection {
         if remoteId != nil, connected || status != nil {
             log.notice("dropped: \(self.label, privacy: .public) \(status.map(String.init) ?? "", privacy: .public)")
         }
+        if downSince == nil { downSince = Date() }
         connected = false
         delegate?.connectionDidDrop(self, status: status)
         let delay = retryDelay

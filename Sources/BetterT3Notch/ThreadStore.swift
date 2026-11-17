@@ -187,6 +187,8 @@ final class ThreadStore: ObservableObject {
     private var outputText = ""
     /// Streamed file edits come without their patch; look each up once for live +/- counts.
     private var fetchedEdits: Set<String> = []
+    /// Connections being watched for threads that went stale (see `watchForStaleThreads`).
+    private var staleWatches: Set<ObjectIdentifier> = []
     private var recomputeScheduled = false
     private var eventClearTask: Task<Void, Never>?
     /// The pop-up goes away once T3 Code says you've seen it: its read receipt (`lastVisitedAt`)
@@ -1227,14 +1229,29 @@ extension ThreadStore: ConnectionDelegate {
         connection.commandThreads = [:]
         if let watch = outputWatch, watch.conn === connection { outputWatch = nil }
         updateConnected()
-        // Don't leave "running" threads on screen if a server went away for good;
-        // short blips (server restart, sleep/wake) reconnect before this fires.
+        watchForStaleThreads(connection)
+    }
+
+    /// Don't leave "running" threads on screen if a server went away for good. Short blips
+    /// (server restart, sleep/wake) get 6 s to come back; a server that answers but is still
+    /// sending its snapshot keeps its last-known threads longer (no flicker after every wake),
+    /// but never past 100 s: by then the connection has given up on that socket at least once.
+    private func watchForStaleThreads(_ connection: Connection) {
+        let id = ObjectIdentifier(connection)
+        guard staleWatches.insert(id).inserted else { return }
         Task {
-            try? await Task.sleep(for: .seconds(6))
-            // Still down, and still the connection for that machine (not replaced by a new link).
-            guard !connection.connected,
-                  connection.remoteId.map({ remotes[$0] === connection }) ?? true else { return }
-            dropThreads(of: connection)
+            defer { staleWatches.remove(id) }
+            while true {
+                try? await Task.sleep(for: .seconds(2))
+                // Current again, or no longer the connection for that machine (unlinked or replaced).
+                guard !connection.connected, let since = connection.downSince,
+                      connection.remoteId.map({ remotes[$0] === connection }) ?? true else { return }
+                let down = Date().timeIntervalSince(since)
+                if down > 100 || (down > 6 && !connection.answering) {
+                    dropThreads(of: connection)
+                    return
+                }
+            }
         }
     }
 }
