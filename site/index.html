@@ -8,7 +8,10 @@
 <meta name="theme-color" content="#050608">
 <meta property="og:title" content="Better T3 Notch">
 <meta property="og:description" content="A Dynamic Island for T3 Code on macOS. See, answer and stop your agents from the notch.">
-<meta property="og:image" content="assets/expanded.jpg">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://notkainoa.github.io/better-t3-notch/">
+<meta property="og:image" content="https://notkainoa.github.io/better-t3-notch/assets/expanded.jpg">
+<link rel="canonical" href="https://notkainoa.github.io/better-t3-notch/">
 <link rel="icon" href="assets/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +19,7 @@
 <style>
 :root{
   --bg:#050608; --bg-2:#0c0f17; --panel:#10131d; --line:#1d2233;
-  --text:#eef0f6; --muted:#9aa1b5; --dim:#646b80;
+  --text:#eef0f6; --muted:#9aa1b5; --dim:#7f879e;
   --indigo:#6b83ff; --indigo-2:#8ea0ff; --sky:#7cd3fc; --amber:#ffc773; --green:#5bd99b; --red:#ff7a7a;
   --radius:18px;
   --sans:"Geist",ui-sans-serif,system-ui,-apple-system,sans-serif;
@@ -97,7 +100,7 @@ section{padding:96px 0}
 .state{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
 .state .mini{background:#000;border-radius:0 0 14px 14px;height:30px;display:flex;align-items:center;justify-content:center;gap:8px;font:500 13px var(--sans);margin:-18px auto 16px;width:max-content;padding:0 16px;min-width:140px}
 .state b{display:block;font-size:15px;margin-bottom:4px}
-.state span{color:var(--muted);font-size:14px}
+.state > span{color:var(--muted);font-size:14px}
 
 .features{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .feat{background:var(--bg-2);padding:26px}

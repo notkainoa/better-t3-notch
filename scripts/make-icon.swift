@@ -67,4 +67,8 @@ p.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 p.arguments = ["-c", "icns", iconset.path, "-o", out.path]
 try p.run(); p.waitUntilExit()
 try render(1024).write(to: root.appendingPathComponent("docs/icon.png"))
-print(p.terminationStatus == 0 ? "Wrote \(out.path) and docs/icon.png" : "iconutil failed")
+guard p.terminationStatus == 0 else {
+    FileHandle.standardError.write("iconutil failed (status \(p.terminationStatus))\n".data(using: .utf8)!)
+    exit(1)
+}
+print("Wrote \(out.path) and docs/icon.png")
