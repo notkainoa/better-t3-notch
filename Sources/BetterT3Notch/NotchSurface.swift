@@ -460,8 +460,9 @@ final class StatusPill: NSView {
     /// The left side's words while the sides are split: "2 need you" after the icons, or
     /// "6 working" after the spinner.
     private let leftLabel = RollingLabel(align: .left)
-    /// Which side what's waiting takes while work sits beside it.
-    private var needsYouOnLeft: Bool { Settings.needsYouOnLeft }
+    /// Which side what's waiting takes while work sits beside it, as of the last `update`
+    /// (so a layout pass never mixes the two arrangements).
+    private var needsYouOnLeft = Settings.needsYouOnLeft
     private var kinds: [NotchSummary.Kind] = []
     private var shown = false
     /// Width of the notch shape the parts sit in (centered in the canvas).
@@ -598,6 +599,7 @@ final class StatusPill: NSView {
             if on, v.alphaValue < 0.5 { appeared.insert(ObjectIdentifier(v)) }
             Anim.reveal(v, on, animated: animate, scale: scale, delay: delay)
         }
+        needsYouOnLeft = Settings.needsYouOnLeft
         let onLeft = needsYouOnLeft
         rightLabel.set(words(onLeft ? s.workingAside ?? text : text), animated: animate)
         // The left words keep their last text while they fade out.
