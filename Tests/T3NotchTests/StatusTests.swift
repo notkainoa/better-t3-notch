@@ -200,4 +200,53 @@ import Testing
         #expect(t.status == .idle)
         #expect(t.phase == .completed)
     }
+
+    // MARK: Read in T3 Code (puts the notch's pop-up away)
+
+    private func iso(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+
+    @Test func finishIsReadOnceAVisitReachesItsCompletion() {
+        let done = ["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
+                    "updatedAt": "2026-10-27T20:00:01.000Z"]
+        let unread = shell(done.merging(["lastVisitedAt": "2026-10-27T19:59:00.000Z"]) { _, b in b })
+        #expect(unread.readAfter == iso("2026-10-27T20:00:00Z"))
+        #expect(!unread.isRead(after: unread.readAfter!))
+        let read = shell(done.merging(["lastVisitedAt": "2026-10-27T20:00:01.000Z"]) { _, b in b })
+        #expect(read.isRead(after: read.readAfter!))
+        // T3's rule: a visit at the completion itself counts (completedAt > lastVisitedAt is unread).
+        let atCompletion = shell(done.merging(["lastVisitedAt": "2026-10-27T20:00:00.000Z"]) { _, b in b })
+        #expect(atCompletion.isRead(after: atCompletion.readAfter!))
+    }
+
+    @Test func requestIsReadOnceAVisitComesAfterIt() {
+        let ask: [String: Any] = ["status": "running", "activityRunStatus": "running",
+                                  "updatedAt": "2026-10-27T20:00:00.500Z",
+                                  "pendingRuntimeRequest": ["id": "r1", "kind": "command", "createdAt": "2026-10-27T20:00:00.000Z"]]
+        // A throttled visit for streaming from before the question doesn't count.
+        let before = shell(ask.merging(["lastVisitedAt": "2026-10-27T19:59:58.000Z"]) { _, b in b })
+        #expect(!before.isRead(after: before.readAfter!))
+        // Opening it in T3 stamps the visit with the thread's updatedAt.
+        let opened = shell(ask.merging(["lastVisitedAt": "2026-10-27T20:00:00.500Z"]) { _, b in b })
+        #expect(opened.isRead(after: opened.readAfter!))
+    }
+
+    @Test func questionIsReadOnceAVisitComesAfterIt() {
+        let ask: [String: Any] = ["status": "running", "activityRunStatus": "running",
+                                  "updatedAt": "2026-10-27T20:00:00.500Z",
+                                  "pendingRuntimeRequest": ["id": "r1", "kind": "user_input", "createdAt": "2026-10-27T20:00:00.000Z"]]
+        let before = shell(ask.merging(["lastVisitedAt": "2026-10-27T19:59:58.000Z"]) { _, b in b })
+        #expect(before.status == .awaitingInput)
+        #expect(!before.isRead(after: before.readAfter!))
+        let opened = shell(ask.merging(["lastVisitedAt": "2026-10-27T20:00:00.500Z"]) { _, b in b })
+        #expect(opened.isRead(after: opened.readAfter!))
+    }
+
+    @Test func neverVisitedIsUnread() {
+        let t = shell(["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z"])
+        #expect(!t.isRead(after: t.readAfter!))
+    }
+
+    @Test func workingThreadHasNoReceiptToWaitFor() {
+        #expect(shell(["status": "running", "activityRunStatus": "running"]).readAfter == nil)
+    }
 }

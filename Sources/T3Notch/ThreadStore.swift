@@ -188,6 +188,16 @@ final class ThreadStore: ObservableObject {
     private var fetchedEdits: Set<String> = []
     private var recomputeScheduled = false
     private var eventClearTask: Task<Void, Never>?
+    /// The pop-up goes away once T3 Code says you've seen it: its read receipt (`lastVisitedAt`)
+    /// reaches this time. Nil for pop-ups only an answer (or the timer) puts away.
+    private var eventReadAfter: Date?
+    /// The receipt came while T3 Code was in the background (a thread left open there, or the
+    /// phone): you haven't looked yet, so it goes when T3 Code comes to the front.
+    private var eventReadAway = false
+    /// A finish while T3 Code is in front waits a beat for the receipt: you may be watching it.
+    private var heldFinish: Task<Void, Never>?
+    /// The held finish's thread, followed while it waits (an unvisited finish is no row).
+    private var heldFinishId: String?
 
     // Per-thread detail (only for visible threads)
     private var details: [String: [String: TurnItem]] = [:]
@@ -213,6 +223,15 @@ final class ThreadStore: ObservableObject {
             return
         }
         connect()
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            guard app?.bundleIdentifier == Self.t3BundleId else { return }
+            MainActor.assumeIsolated {
+                if self?.eventReadAway == true { self?.dismissEvent() }
+            }
+        }
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkLimitResets()
@@ -227,13 +246,14 @@ final class ThreadStore: ObservableObject {
 
     /// T3 Code, without picking a thread (the list's footer).
     func openApp() {
-        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") else { return }
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.t3BundleId) else { return }
         closeForT3()
         NSWorkspace.shared.openApplication(at: app, configuration: .init())
     }
 
     /// Put away the pop-up too: you're about to see the thread in T3 itself.
     private func closeForT3() {
+        cancelHeldFinish()
         dismissEvent()
         openedT3.send()
     }
@@ -244,7 +264,7 @@ final class ThreadStore: ObservableObject {
         if let env = environmentId, let url = URL(string: "t3code://threads/\(env)/\(thread.id)") {
             closeForT3()
             NSWorkspace.shared.open(url)
-        } else if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") {
+        } else if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.t3BundleId) {
             closeForT3()
             NSWorkspace.shared.openApplication(at: app, configuration: .init())
         }
@@ -281,12 +301,16 @@ final class ThreadStore: ObservableObject {
 
     /// Bring a put-away "needs you" card back (the little island beside the notch).
     func showEvent(_ t: T3Thread) {
-        show(t.id, .forced, for: t.status.needsYou ? nil : 7)
+        // Asked for by hand: a receipt that already came doesn't put it straight back.
+        let after = shell[t.id].flatMap { s in s.readAfter.flatMap { s.isRead(after: $0) ? nil : $0 } }
+        show(t.id, .forced, for: t.status.needsYou ? nil : 7, readAfter: after)
     }
 
     func dismissEvent() {
         eventClearTask?.cancel()
         eventId = nil
+        eventReadAfter = nil
+        eventReadAway = false
     }
 
     private func dispatch(_ thread: T3Thread, _ command: [String: Any]) {
@@ -555,12 +579,15 @@ final class ThreadStore: ObservableObject {
         func started(_ t: ShellThread) -> Date { t.startedAt ?? t.updatedAt }
         let working = busy.sorted { started($0) != started($1) ? started($0) > started($1) : $0.id < $1.id }
         detectTransitions(awake)
+        checkEventRead()
         let listed = Array(inbox.prefix(Self.inboxCount))
         var visible = listed + working.prefix(Self.busyCount)
         // A pop-up's thread stays followed until it goes away, even if it's no row: a finish you
-        // already saw in T3 resolves to idle, but still gets its few seconds.
-        if let id = eventId, !visible.contains(where: { $0.id == id }), let t = awake.first(where: { $0.id == id }) {
-            visible.append(t)
+        // already saw in T3 (or never opened) resolves to idle, but still gets its few seconds.
+        // Same for a finish that's waiting for T3's receipt, so it has a row when it shows.
+        for id in [eventId, heldFinishId].compactMap({ $0 })
+        where !visible.contains(where: { $0.id == id }) {
+            if let t = awake.first(where: { $0.id == id }) { visible.append(t) }
         }
 
         syncDetailSubscriptions(Set(visible.map(\.id)))
@@ -879,14 +906,28 @@ final class ThreadStore: ObservableObject {
         for (id, phase) in now {
             let before = lastPhases[id]
             let wasActive = before == .active || before == .needsYou
+            // Already seen in T3 Code (its receipt came in the same update): the sound, no card.
+            func seen(_ after: Date?) -> Bool {
+                guard let after, let t = shell[id] else { return false }
+                return t.isRead(after: after) && Self.t3InFront
+            }
             switch phase {
             case .needsYou where before != .needsYou:
-                show(id, .needsYou, for: nil) // sticky until answered
+                let after = shell[id]?.readAfter
+                if !seen(after) { show(id, .needsYou, for: nil, readAfter: after) } // sticky until answered or seen
                 log.notice("needs you: \(id, privacy: .public)")
                 if Settings.sound(.needsYou) { Chime.shared.play(.needsYou) }
                 return
             case .completed where wasActive, .failed where wasActive:
-                show(id, phase == .failed ? .failed : .done, for: 7)
+                let after = shell[id]?.readAfter
+                let kind: EventKind = phase == .failed ? .failed : .done
+                if seen(after) {
+                    // Watched it finish in T3 Code.
+                } else if Self.t3InFront {
+                    holdFinish(id, kind, readAfter: after)
+                } else {
+                    show(id, kind, for: 7, readAfter: after)
+                }
                 log.notice("\(phase == .failed ? "failed" : "done", privacy: .public): \(id, privacy: .public)")
                 if Settings.sound(phase == .failed ? .failed : .done) { Chime.shared.play(phase == .failed ? .failed : .done) }
                 return
@@ -894,6 +935,49 @@ final class ThreadStore: ObservableObject {
                 continue
             }
         }
+    }
+
+    // MARK: Read in T3 Code
+
+    static let t3BundleId = "com.t3tools.t3code"
+    static var t3InFront: Bool { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == t3BundleId }
+
+    /// Opened in T3 Code (here, there, or already open): put the pop-up away. A "needs you" card
+    /// shrinks to its island; a finish closes.
+    private func checkEventRead() {
+        // A finish still held for its receipt: seen in T3 Code now, so it never shows.
+        if let id = heldFinishId, Self.t3InFront, let t = shell[id], let after = t.readAfter, t.isRead(after: after) {
+            log.notice("seen in T3 while held: \(id, privacy: .public)")
+            cancelHeldFinish()
+        }
+        guard let id = eventId, let after = eventReadAfter, let t = shell[id], t.isRead(after: after) else { return }
+        if Self.t3InFront {
+            log.notice("seen in T3: \(id, privacy: .public)")
+            dismissEvent()
+        } else {
+            eventReadAway = true
+        }
+    }
+
+    /// T3 Code is in front, maybe on this very thread: its receipt usually lands well within
+    /// this beat (it sends one at once for an unseen finish), so the card doesn't flash open.
+    private func holdFinish(_ id: String, _ kind: EventKind, readAfter: Date?) {
+        heldFinish?.cancel()
+        heldFinishId = id
+        heldFinish = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, !Task.isCancelled else { return }
+            self.heldFinishId = nil
+            // Gone, or already running again (a queued follow-up): nothing finished to show.
+            guard let t = self.shell[id], t.phase == .completed || t.phase == .failed else { return }
+            if let after = readAfter, t.isRead(after: after), Self.t3InFront { return }
+            self.show(id, kind, for: 7, readAfter: readAfter)
+        }
+    }
+
+    private func cancelHeldFinish() {
+        heldFinish?.cancel()
+        heldFinishId = nil
     }
 
     /// Click once when a usage-limited thread's limit resets (checked by the store's timer).
@@ -907,15 +991,18 @@ final class ThreadStore: ObservableObject {
         }
     }
 
-    private func show(_ id: String, _ kind: EventKind, for seconds: Double?) {
+    private func show(_ id: String, _ kind: EventKind, for seconds: Double?, readAfter: Date?) {
         eventKind = kind
-        eventId = id
         eventClearTask?.cancel()
+        cancelHeldFinish()
+        eventId = id
+        eventReadAfter = readAfter
+        eventReadAway = false
         guard let seconds else { return }
         eventClearTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
-            self?.eventId = nil
+            self?.dismissEvent()
         }
     }
 
@@ -1117,6 +1204,22 @@ struct ShellThread: Sendable {
     }
 
     mutating func refreshStatus() { status = resolveStatus() }
+
+    /// When T3 Code counts the pop-up as seen: once its read receipt (`lastVisitedAt`) reaches
+    /// this. T3 stamps a visit with the thread's `updatedAt`, which every event moves, so a
+    /// receipt for a look from before the request (or the finish) is always earlier.
+    var readAfter: Date? {
+        switch phase {
+        // T3's own unread rule: a finish is read once a visit reaches its completion.
+        case .completed, .failed: latestRunCompletedAt
+        // A request that's only a subagent's leaves this thread's `updatedAt` alone: no receipt.
+        case .needsYou where hasPendingApprovals || hasPendingUserInput || pendingGuestMessages > 0:
+            pendingCreatedAt ?? updatedAt
+        default: nil
+        }
+    }
+
+    func isRead(after: Date) -> Bool { lastVisitedAt.map { $0 >= after } ?? false }
 
     private var runSettled: Bool {
         !["preparing", "starting", "running", "waiting", "queued"].contains(runtimeStatus ?? "")

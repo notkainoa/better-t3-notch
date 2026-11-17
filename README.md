@@ -25,6 +25,8 @@ And when a run finishes, its final message drops down for a few seconds:
 
 ![Finished](docs/screenshots/finished.png)
 
+Both go away once you've seen the thread in T3 Code, however you got there: from the notch, from T3's sidebar, or because it was already open in front of you. A question card shrinks to its little island and a finish closes early. They follow T3's own read receipt, so a thread left open in a T3 window behind other apps doesn't count until you bring T3 Code forward. A question a subagent asks through its parent is the exception: opening the parent doesn't change it, so that card waits for your answer.
+
 ## Performance
 
 It sits on screen all day, so it has to cost close to nothing. The first version was built in SwiftUI and used **~19% CPU** while agents ran. Rebuilding it on AppKit + Core Animation brought that under **1%**.
