@@ -459,6 +459,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hover.toolTip = "Off (default): click the notch to open the list."
         menu.addItem(hover)
 
+        let glow = NSMenuItem(title: "Accent Glow", action: #selector(toggleAccentGlow), keyEquivalent: "")
+        glow.target = self
+        glow.state = Settings.accentGlow ? .on : .off
+        glow.toolTip = "The open notch glows in the theme's accent color. Off: a plain dark shadow."
+        menu.addItem(glow)
+
         let showModel = NSMenuItem(title: "Show Model", action: #selector(toggleShowModel), keyEquivalent: "")
         showModel.target = self
         showModel.state = Settings.showModel ? .on : .off
@@ -616,6 +622,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleOpenOnHover() {
         Settings.openOnHover.toggle()
+    }
+
+    @objc private func toggleAccentGlow() {
+        Settings.accentGlow.toggle()
+        // Defer so we don't tear down the panel whose menu is still unwinding.
+        DispatchQueue.main.async { self.rebuildPanels() } // the shadow is set when a panel is built
     }
 
     @objc private func toggleShowModel() {
