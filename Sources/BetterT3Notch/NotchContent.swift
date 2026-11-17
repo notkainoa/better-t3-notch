@@ -917,7 +917,7 @@ final class FinishedView: FlippedView {
             status.textColor = t.status == .idle ? NSColor.white.withAlphaComponent(0.5) : t.status.color
         }
         message.stringValue = Layout.finishedText(t)
-        if t.settled, shown == .completed, !settling { settle() }
+        if store.eventSettled, !settling { settle() } // the store closes this card early
         needsLayout = true
     }
 
@@ -928,7 +928,7 @@ final class FinishedView: FlippedView {
         let delay = badge.settle()
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard let self else { return }
+            guard let self, self.store.eventSettled else { return }
             self.settledShown = true
             self.status.wantsLayer = true
             let fade = CATransition()
@@ -962,6 +962,8 @@ final class CheckBadge: NSView {
     private let box = CALayer()
     private var drawnFailed: Bool?
     private var drawnAt: CFTimeInterval = 0
+    /// From the check starting to draw to the box dropping in. The store times the card by it.
+    static let settleSwap = 1.15 + 0.12
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -987,7 +989,7 @@ final class CheckBadge: NSView {
     /// swap, so the label can change with it.
     func settle() -> Double {
         let now = CACurrentMediaTime()
-        let at = max(now + 0.05, drawnAt + 1.15)
+        let at = max(now + 0.05, drawnAt + Self.settleSwap - 0.12)
         let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if let image = NSImage(systemSymbolName: "archivebox.fill", accessibilityDescription: "Settled")?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
@@ -1009,6 +1011,8 @@ final class CheckBadge: NSView {
         fadeOut.fromValue = 1; fadeOut.toValue = 0
         out.animations = [shrink, fadeOut]
         out.duration = 0.18
+        shrink.duration = out.duration
+        fadeOut.duration = out.duration
         out.timingFunction = CAMediaTimingFunction(name: .easeIn)
         out.beginTime = at
         out.fillMode = .backwards

@@ -198,7 +198,8 @@ final class ThreadStore: ObservableObject {
     private var eventReadAway = false
     /// The finish's thread is settled (an agent that merges its own PR settles it as it ends):
     /// the card files itself away and goes sooner.
-    private var eventSettled = false
+    /// The card reads this too, so the box only drops on a card that closes early, and vice versa.
+    private(set) var eventSettled = false
     /// A finish while T3 Code is in front waits a beat for the receipt: you may be watching it.
     private var heldFinish: Task<Void, Never>?
     /// The held finish's thread, followed while it waits (an unvisited finish is no row).
@@ -315,6 +316,7 @@ final class ThreadStore: ObservableObject {
         eventClearTask?.cancel()
         eventClearTask = nil
         eventSettled = false
+        eventDeadline = nil
         eventId = nil
         eventReadAfter = nil
         eventReadAway = false
@@ -1019,14 +1021,18 @@ final class ThreadStore: ObservableObject {
         eventShownAt = Date()
         eventSettled = seconds != nil && settlesCard(id)
         // Settled as it finished: the check, the box, then gone, without the full 7s.
-        clearEvent(after: eventSettled ? seconds.map { min($0, Self.settledCardSeconds) } : seconds)
+        let after = eventSettled ? seconds.map { min($0, Self.settledCardSeconds) } : seconds
+        eventDeadline = after.map { Date().addingTimeInterval($0) }
+        clearEvent(after: after)
     }
 
-    /// The check draws and sits (~1.3s), turns into the box, then a short beat and gone.
-    static let settledCardSeconds = 2.4
     /// Once the box is in: just long enough to see it land.
     static let settledLinger = 1.1
+    /// The check draws and sits, turns into the box, then a short beat and gone.
+    static let settledCardSeconds = CheckBadge.settleSwap + settledLinger
     private var eventShownAt = Date.distantPast
+    /// When the card closes on its own; settling only ever brings it closer.
+    private var eventDeadline: Date?
 
     /// A finish card whose thread settles while it's up: it files itself away and goes early.
     private func checkEventSettled() {
@@ -1034,15 +1040,20 @@ final class ThreadStore: ObservableObject {
         log.notice("settled while shown: \(id, privacy: .public)")
         eventSettled = true
         // The swap waits for the check's moment if the card only just opened.
-        let untilSwap = max(0, 1.3 - Date().timeIntervalSince(eventShownAt))
-        clearEvent(after: untilSwap + Self.settledLinger)
+        let untilSwap = max(0, CheckBadge.settleSwap - Date().timeIntervalSince(eventShownAt))
+        var after = untilSwap + Self.settledLinger
+        if let deadline = eventDeadline { after = min(after, max(0, deadline.timeIntervalSinceNow)) }
+        eventDeadline = Date().addingTimeInterval(after)
+        clearEvent(after: after)
     }
 
-    /// Only a finish settles its card: a failure or a question still wants you.
+    /// Only a plain finish settles its card: a failure, a plan or a question still wants you.
     private func settlesCard(_ id: String) -> Bool {
         guard eventKind == .done || eventKind == .forced else { return false }
-        if let s = shell[id] { return s.settled && s.phase == .completed }
-        return Self.demo.threads.first { $0.id == id }.map { $0.settled && $0.status == .completed } ?? false
+        let done: (Bool, ThreadStatus)? = shell[id].map { ($0.settled && $0.phase == .completed, $0.status) }
+            ?? Self.demo.threads.first { $0.id == id }.map { ($0.settled, $0.status) }
+        guard let (settled, status) = done else { return false }
+        return settled && (status == .completed || status == .idle)
     }
 
     private func clearEvent(after seconds: Double?) {
@@ -1287,7 +1298,9 @@ struct ShellThread: Sendable {
     var settled: Bool {
         if pinned { return false }
         if hasPendingApprovals || hasPendingUserInput { return false }
-        if ["preparing", "starting", "running"].contains(runtimeStatus ?? "") { return false }
+        // T3 blocks a live session; "preparing", "waiting" and "queued" are the notch's names
+        // for parts of one, so they keep it out too (the safe side: it stays visible).
+        if ["preparing", "starting", "running", "waiting", "queued"].contains(runtimeStatus ?? "") { return false }
         if settledOverride == "settled" { return true }
         if settledOverride == "active" { return false }
         return pr?.state == "merged" || pr?.state == "closed"

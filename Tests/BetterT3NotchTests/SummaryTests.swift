@@ -102,6 +102,8 @@ import Testing
     @Test func runningOrBlockedWorkNeverSettles() {
         var running = pr("merged"); running["status"] = "running"; running["activityRunStatus"] = "running"
         #expect(shell(running).shelf(now: now) == .inbox)
+        var waiting = pr("merged"); waiting["status"] = "running"; waiting["activityRunStatus"] = "waiting"
+        #expect(shell(waiting).shelf(now: now) == .inbox)
         var asking = pr("merged"); asking["settledOverride"] = "settled"
         asking["pendingRuntimeRequest"] = ["id": "r1", "kind": "command", "createdAt": "2026-11-16T11:30:00.000Z"]
         #expect(shell(asking).shelf(now: now) == .inbox)
