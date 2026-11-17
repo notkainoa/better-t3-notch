@@ -134,7 +134,7 @@ final class NotchModel: ObservableObject {
             let (icons, text) = StatusPill.widths(store.summary)
             let inset = sideInset(for: .activity)
             let width = hardwareNotch
-                ? notchSize.width + (max(icons, text) + inset + 12) * 2
+                ? notchSize.width + (max(icons, text) + inset + Self.cameraGap) * 2
                 : max(notchSize.width, inset * 2 + icons + 10 + text)
             return .init(width: width, height: notchSize.height)
         case .peek:
@@ -238,6 +238,10 @@ final class NotchModel: ObservableObject {
     func sideInset(for mode: NotchMode) -> CGFloat {
         (mode == .idle || mode == .activity ? 6 : 14) + (mode == .activity ? 10 : Self.edgePadding)
     }
+
+    /// Room between the camera and the pill's words or icons (the label's own inset keeps
+    /// the text off it).
+    static let cameraGap: CGFloat = 0
 
     var topRadius: CGFloat { mode == .idle || mode == .activity ? 6 : 14 }
     var bottomRadius: CGFloat { mode == .expanded ? 28 : mode == .peek ? 22 : 12 }
