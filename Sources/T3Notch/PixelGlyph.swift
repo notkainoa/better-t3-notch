@@ -16,7 +16,7 @@ enum PixelArt {
                 blue: CGFloat(v & 0xFF) / 255, alpha: 1)
     }
 
-    /// The shared drawings (Shared/PixelArtData.swift, also used by the iPhone Live Activity).
+    /// The drawings (PixelArtData.swift).
     static func art(for provider: String?) -> Art {
         if let a = provider.flatMap({ PixelArtData.arts[$0] }) { return Art(rows: a.rows, color: hex(a.rgb)) }
         return Art(rows: PixelArtData.fallbackRows, color: ThreadStatus.working.color) // unknown provider

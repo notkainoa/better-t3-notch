@@ -1,6 +1,3 @@
-// Shared by the Mac notch and the iPhone Live Activity (Phone/project.yml compiles this file too),
-// so both draw the same pixel logos. Foundation only.
-
 /// Provider logos as pixel art, drawn by hand from T3 Code's provider logos (Resources/Logos);
 /// colors are the logos' own. 7×7, except Claude's spark (9×9, so its rays stay round).
 enum PixelArtData {

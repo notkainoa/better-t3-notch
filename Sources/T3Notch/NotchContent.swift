@@ -1148,8 +1148,37 @@ enum Logos {
     }
 }
 
-/// User preferences (menu bar menu).
+/// User preferences (the Settings window).
 enum Settings {
+    private static func flag(_ key: String, default value: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? value
+    }
+
+    // Pop-ups: what drops down from the notch on its own. The list and the pill still count
+    // these threads either way.
+    /// A finished run's final message, for a few seconds.
+    static var popDone: Bool {
+        get { flag("popDone", default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: "popDone") }
+    }
+    /// A failed run's last message, for a few seconds.
+    static var popFailed: Bool {
+        get { flag("popFailed", default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: "popFailed") }
+    }
+    /// The approval / question card, until it's answered.
+    static var popNeedsYou: Bool {
+        get { flag("popNeedsYou", default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: "popNeedsYou") }
+    }
+
+    /// Which events make a sound (all of them need `Chime.enabled` too).
+    enum SoundEvent: String, CaseIterable {
+        case done, failed, needsYou, pullRequest, limitReset
+    }
+    static func sound(_ e: SoundEvent) -> Bool { flag("sound." + e.rawValue, default: true) }
+    static func setSound(_ e: SoundEvent, _ on: Bool) { UserDefaults.standard.set(on, forKey: "sound." + e.rawValue) }
+
     private static let showModelKey = "showModel"
     static var showModel: Bool {
         get { UserDefaults.standard.object(forKey: showModelKey) as? Bool ?? true }
