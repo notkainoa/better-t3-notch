@@ -471,7 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     }
 
     @objc func openT3() {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") else { return }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: ThreadStore.t3BundleId) else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
 }
