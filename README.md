@@ -2,11 +2,18 @@
 
 A Dynamic Island–style notch for [T3 Code](https://github.com/t3tools/t3code) on macOS. See what your agents are doing, answer them, and stop them, without leaving the app you're in.
 
-![Compact notch](docs/screenshots/compact.png)
+Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wins over work in progress:
 
-Hover it (or press **⌘⇧Space**) for the full list:
+| What's going on | Icons | It says |
+|---|---|---|
+| One kind waiting | `?` (question, approval or guest message), 📋 (plan), `✕` (failed) or `✓` (done) | 1 needs you · 2 plans ready · 1 failed · 3 done |
+| More than one kind waiting | every kind's icon | 4 need you |
+| Nothing waiting, threads working | a spinner | 5 working |
+| Nothing at all | | (the plain notch) |
 
-![Expanded list](docs/screenshots/expanded.png)
+"Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.
+
+Click it (or press **⌘⇧Space**) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on Hover** in the menu.
 
 When an agent needs you, answer right from the notch:
 
@@ -51,10 +58,9 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 
 ## Features
 
-- **Live compact bar:** the working thread's title, what it's doing (command, file edit, thinking), `+added −removed` lines and a timer. It rotates through working threads with a spring slide; long commands scroll instead of being cut off.
+- **One-line status:** what's waiting on you as icons, and one line of words beside the camera (see above). The list holds only what's waiting; working, snoozed and settled are counted underneath, like T3's sidebar shelves.
 - **Pixel logos:** each provider's logo as pixel art in its own colors (Claude, Codex, Cursor, Grok, Meta, opencode, Pi). While a thread works, a lit head sweeps around the logo (opencode's "Soft Radar" loader); while it waits on background work, a soft band drifts down and up it.
-- **Motion:** opening the notch, the bar's title flies into its row (and back on close). A finished run springs open with a checkmark drawing itself and a green flash along the edge; "needs you" gives a small wiggle. The edge glows in the lead status color and a light sweeps along the bottom while agents run.
-- **Split island:** something needs you while other threads work and you put its card away? It moves to its own little bubble beside the notch; click it to answer.
+- **Motion:** a finished run springs open with a checkmark drawing itself and a green flash along the edge; "needs you" gives a small wiggle. Counts roll to their new value.
 - **T3's own statuses:** Working, Connecting, Waiting, Pending Approval, Awaiting Input, Failed, Plan Ready, Completed. The logic is ported from T3's sidebar and covered by tests.
 - **Act without switching apps:** approve or deny, tap an answer, reply or steer a running agent, or stop a run (two clicks).
 - **Live terminal:** hover a running command to watch its last lines stream in.
@@ -116,7 +122,7 @@ If the Live Activity ever goes missing while threads run (swiped away, or ended 
 
 | Variable | Effect |
 |---|---|
-| `T3NOTCH_DEMO=approval\|question\|finished\|list\|split` | fake threads for layouts and screenshots |
+| `T3NOTCH_DEMO=approval\|question\|finished\|list\|working\|done\|failed\|plan\|asked-done` | fake threads for layouts and screenshots (no connection to T3 Code) |
 | `T3NOTCH_ALLOW_CAPTURE=1` | let screenshots include the notch for this launch |
 | `T3NOTCH_FORCE_EXPANDED=1` | keep the list open |
 | `T3NOTCH_RUNTIME_FILE=path` | read the server address from another file |

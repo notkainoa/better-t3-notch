@@ -27,8 +27,7 @@ final class NotchController {
     private let store: ThreadStore
 
     /// Window is sized for the largest state; the visible notch is drawn inside it.
-    /// Wide enough for the split island beside the widest collapsed bar.
-    private static let canvas = CGSize(width: 700, height: 560)
+    private static let canvas = CGSize(width: 700, height: NotchModel.maxHeight)
 
     /// While the settings menu is open the cursor leaves the notch; don't collapse under it.
     var holdOpen = false
@@ -78,11 +77,18 @@ final class NotchController {
             if key != self.lastRenderKey {
                 self.lastRenderKey = key
                 self.root.refresh() // collapsed: only when something visible changed
+                // The pill may have grown under a cursor that isn't moving: make it clickable now.
+                self.updateHover(NSEvent.mouseLocation)
             }
         }.store(in: &cancellables)
         // Hover, keyboard, reply, mode: reshape (spring) and mount/unmount the list or card.
         model.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in
             self?.root.refresh()
+        }.store(in: &cancellables)
+        // Opening T3 Code from the notch (a row, the footer, a card): close the notch.
+        store.openedT3.receive(on: RunLoop.main).sink { [weak self] in
+            self?.unfocus(restoreFocus: false) // T3 comes to the front instead
+            self?.collapse()
         }.store(in: &cancellables)
         // Reply field opened by mouse: the panel needs focus for typing.
         model.$replyingTo.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in
@@ -101,13 +107,13 @@ final class NotchController {
     var isFocused: Bool { model.focused }
     /// Pointer is somewhere this notch could care about (or it still thinks it's hovered).
     func cares(about p: CGPoint) -> Bool {
-        model.hovering || model.hoveredRow != nil || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
+        model.hovering || model.hoveredRow != nil || model.hoveredFooter || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
     }
     var peekRow: String? { model.peekRow }
 
     /// Keyboard mode (shortcut): expand, select the most urgent thread, take focus.
     func focus() {
-        model.selection = (store.stickyEvent ?? store.needsYou.first ?? store.threads.first)?.id
+        model.selection = (store.stickyEvent ?? model.listThreads.first)?.id
         model.keyboard = true
         syncFocus()
     }
@@ -228,16 +234,16 @@ final class NotchController {
         let inside = rect.insetBy(dx: -4, dy: -4).contains(p)
         let row = inside ? model.rowId(atY: rect.maxY - p.y) : nil
         if model.hoveredRow != row { model.hoveredRow = row }
+        let footer = inside && model.isFooter(atY: rect.maxY - p.y)
+        if model.hoveredFooter != footer { model.hoveredFooter = footer }
         if model.focused { return } // keyboard / reply mode: stays open until Esc or click-away
-        // The split island takes clicks, but hovering it doesn't open the list.
-        let onBubble = model.splitNeedsYou && CGRect(x: rect.maxX + NotchModel.bubbleGap, y: rect.maxY - model.notchSize.height,
-                                                     width: NotchModel.bubbleWidth, height: model.notchSize.height).contains(p)
-        panel.ignoresMouseEvents = !(inside || onBubble)
+        panel.ignoresMouseEvents = !inside // takes the click that opens it
 
         if inside {
             collapseWork?.cancel()
             collapseWork = nil
-            if !model.hovering { model.hovering = true }
+            // Otherwise a click opens it (NotchRootView.mouseDown).
+            if Settings.openOnHover, !model.hovering { model.hovering = true }
         } else if model.hovering, collapseWork == nil, !holdOpen {
             let work = DispatchWorkItem { [weak self] in
                 self?.model.hovering = false
@@ -447,6 +453,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(themeMenu())
         menu.addItem(liveMenu())
 
+        let hover = NSMenuItem(title: "Open on Hover", action: #selector(toggleOpenOnHover), keyEquivalent: "")
+        hover.target = self
+        hover.state = Settings.openOnHover ? .on : .off
+        hover.toolTip = "Off (default): click the notch to open the list."
+        menu.addItem(hover)
+
+        let glow = NSMenuItem(title: "Accent Glow", action: #selector(toggleAccentGlow), keyEquivalent: "")
+        glow.target = self
+        glow.state = Settings.accentGlow ? .on : .off
+        glow.toolTip = "The open notch glows in the theme's accent color. Off: a plain dark shadow."
+        menu.addItem(glow)
+
         let showModel = NSMenuItem(title: "Show Model", action: #selector(toggleShowModel), keyEquivalent: "")
         showModel.target = self
         showModel.state = Settings.showModel ? .on : .off
@@ -600,6 +618,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleCapture() {
         Settings.hideFromCapture.toggle()
         controllers.forEach { $0.applyCaptureSetting() }
+    }
+
+    @objc private func toggleOpenOnHover() {
+        Settings.openOnHover.toggle()
+    }
+
+    @objc private func toggleAccentGlow() {
+        Settings.accentGlow.toggle()
+        // Defer so we don't tear down the panel whose menu is still unwinding.
+        DispatchQueue.main.async { self.rebuildPanels() } // the shadow is set when a panel is built
     }
 
     @objc private func toggleShowModel() {
