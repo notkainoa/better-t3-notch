@@ -56,6 +56,23 @@ import Testing
         #expect(t.status == .idle)
     }
 
+    @Test func unawaitedMonitorDoesNotHoldCompletion() {
+        // A PR watch or a dev server's watchdog: T3 shows the run as finished, not Waiting.
+        let t = shell(["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
+                       "lastVisitedAt": "2026-10-27T21:00:00.000Z",
+                       "pendingBackgroundTasks": [["taskId": "pull-request-watch:1", "kind": "monitor"]]])
+        #expect(t.status == .idle)
+        #expect(!t.status.isBusy)
+    }
+
+    @Test func awaitedMonitorIsWaiting() {
+        let t = shell(["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
+                       "pendingBackgroundTasks": [["taskId": "pull-request-watch:1", "kind": "monitor",
+                                                   "awaited": true]]])
+        #expect(t.status == .waiting)
+        #expect(t.status.isBusy) // counted as working, like T3's Working shelf
+    }
+
     @Test func awaitedBackgroundCommandIsWaiting() {
         // Newer T3: work the agent marks `awaited` holds the thread as Waiting whatever its kind.
         let t = shell(["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
@@ -102,11 +119,12 @@ import Testing
         #expect(t.status == .awaitingInput)
     }
 
-    @Test func nonBlockingQuestionWhileWorkingStaysWorking() {
+    @Test func nonBlockingQuestionWhileWorkingIsAwaitingInput() {
+        // T3 (presentThreadShell): any question waits on you and leaves the Working shelf.
         let t = shell(["status": "running", "activityRunStatus": "running",
                        "pendingRuntimeRequest": ["id": "r1", "kind": "user_input", "blocking": false,
                                                  "createdAt": "2026-10-27T20:00:00.000Z"]])
-        #expect(t.status == .working)
+        #expect(t.status == .awaitingInput)
     }
 
     @Test func nonBlockingQuestionAfterRunEndsIsAwaitingInput() {
@@ -168,12 +186,26 @@ import Testing
         #expect(t.status == .working)
     }
 
-    @Test func liveAppOwnedSubagentForwardsItsQuestion() {
-        let t = shell(["status": "running", "activityRunStatus": "running", "creationSource": "web",
-                       "lineage": ["parentThreadId": "parent", "relationshipToParent": "subagent"],
-                       "pendingRuntimeRequest": ["id": "r1", "kind": "user_input", "createdAt": "2026-10-27T20:00:00.000Z"]])
-        #expect(t.subagentRequest == .awaitingInput)
-        #expect(t.parentId == "parent")
+    @Test func liveAppOwnedSubagentForwardsApprovalsAndUserOnlyQuestions() {
+        let base: [String: Any] = ["status": "running", "activityRunStatus": "running", "creationSource": "web",
+                                   "lineage": ["parentThreadId": "parent", "relationshipToParent": "subagent"]]
+        func with(_ request: [String: Any]) -> ShellThread { shell(base.merging(["pendingRuntimeRequest": request]) { $1 }) }
+        #expect(with(["id": "r1", "kind": "command"]).subagentRequest == .pendingApproval)
+        #expect(with(["id": "r1", "kind": "user_input", "userOnly": true]).subagentRequest == .awaitingInput)
+        // T3's flag(): the coordinator answers its subagents' questions, so they don't go up.
+        #expect(with(["id": "r1", "kind": "user_input"]).subagentRequest == nil)
+        #expect(with(["id": "r1", "kind": "command"]).parentId == "parent")
+    }
+
+    @Test func sideChatAsksThroughItsParent() {
+        let base: [String: Any] = ["lineage": ["parentThreadId": "parent", "sideChat": true]]
+        func with(_ request: [String: Any]) -> ShellThread { shell(base.merging(["pendingRuntimeRequest": request]) { $1 }) }
+        #expect(shell(base).isChild)
+        #expect(shell(base).sideChatRequest == nil)
+        // It talks to the user, so its questions go up as well as its approvals.
+        #expect(with(["id": "r1", "kind": "user_input"]).sideChatRequest == .awaitingInput)
+        #expect(with(["id": "r1", "kind": "command"]).sideChatRequest == .pendingApproval)
+        #expect(with(["id": "r1", "kind": "auth_refresh"]).sideChatRequest == nil)
     }
 
     @Test func forksAreTopLevelLikeInT3sSidebar() {
@@ -184,6 +216,54 @@ import Testing
         #expect(subagent.isChild)
         let sideChat = shell(["lineage": ["parentThreadId": "parent", "relationshipToParent": "fork", "sideChat": true]])
         #expect(sideChat.isChild)
+    }
+
+    @Test func delegatedTaskIsListedUnderItsParentLikeT3() {
+        let task = shell(["status": "running", "activityRunStatus": "running",
+                          "delegatedFrom": ["environmentId": "env-mac", "threadId": "p1", "title": "Parent"]])
+        #expect(task.delegatedFromEnvironment == "env-mac")
+        #expect(task.delegatedFromThread == "p1")
+        #expect(task.isShownUnderParent(shell(["id": "p1"])))
+        // Parent unknown (machine not followed) or archived: T3 lists the task on its own.
+        #expect(!task.isShownUnderParent(nil))
+        #expect(!task.isShownUnderParent(shell(["id": "p1", "archivedAt": "2026-10-27T20:00:00.000Z"])))
+    }
+
+    @Test func delegatedTaskAsksThroughItsParentLikeT3() {
+        let from: [String: Any] = ["environmentId": "env-mac", "threadId": "p1", "title": "Parent"]
+        let live: [String: Any] = ["status": "running", "activityRunStatus": "running", "delegatedFrom": from]
+        // An approval goes up to the parent, and the task stays listed under it.
+        let approval = shell(live.merging(["pendingRuntimeRequest": ["id": "r1", "kind": "command"]]) { $1 })
+        #expect(approval.delegatedRequest == .pendingApproval)
+        #expect(approval.isShownUnderParent(shell(["id": "p1"])))
+        // The coordinator answers the task's questions; only user-only ones go up.
+        let question = shell(live.merging(["pendingRuntimeRequest": ["id": "r2", "kind": "user_input"]]) { $1 })
+        #expect(question.delegatedRequest == nil)
+        let userOnly = shell(live.merging(["pendingRuntimeRequest": ["id": "r3", "kind": "user_input", "userOnly": true]]) { $1 })
+        #expect(userOnly.delegatedRequest == .awaitingInput)
+        // The parent then needs you and is off the Working shelf, like T3's pendingSubagentRequest.
+        var parent = shell(["id": "p1", "status": "running", "activityRunStatus": "running"])
+        #expect(parent.status.isBusy)
+        parent.childRequest = .pendingApproval
+        #expect(parent.status == .pendingApproval)
+        #expect(!parent.status.isBusy)
+    }
+
+    @Test func failedRunWithBackgroundWorkIsNotWorking() {
+        // shellRuntime() doesn't park a failed run, so isThreadWorking() leaves it off the shelf.
+        let t = shell(["status": "failed", "latestRunId": "run-1", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
+                       "pendingBackgroundTasks": [["kind": "subagent", "id": "n1"]]])
+        #expect(t.status == .failed)
+        #expect(!t.status.isBusy)
+    }
+
+    @Test func settledPlanWithBackgroundWorkWaitsOnYou() {
+        // isThreadWorking(): a settled plan run with an actionable plan is off the Working shelf,
+        // even while background work it doesn't wait on is still going.
+        let t = shell(["status": "idle", "interactionMode": "plan", "hasActionableProposedPlan": true,
+                       "latestRunId": "run-1", "pendingBackgroundTasks": [["kind": "subagent", "id": "n1"]]])
+        #expect(t.status == .planReady)
+        #expect(!t.status.isBusy)
     }
 
     @Test func providerNativeSubagentDoesNotForward() {

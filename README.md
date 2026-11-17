@@ -17,7 +17,7 @@ Collapsed, it leaves nothing out. Usually the icons sit on the left and the word
 
 When threads are working **and** something waits on you, it shows both: the spinner and "6 working" keep the left, and what's waiting moves right with its icons ("`?` `✓` 2 need you"). To keep what's waiting on the left instead, set **Settings → Appearance → What needs you sits on** to Left.
 
-"Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.
+"Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake. "Working" is what T3's Working shelf holds: threads running, and threads waiting on a subagent, another thread, or background work the agent is waiting for. A dev server or a PR watch left running doesn't count. Work delegated from a thread you can see counts under that thread, like in T3's sidebar.
 
 Click it (or press **⌘⇧Space**, which you can change in Settings) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on hover** in Settings.
 
@@ -107,6 +107,10 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 - On first launch it creates its own bearer token with T3's CLI (`~/.t3/bin/t3 auth session issue`, scopes `orchestration:read` + `orchestration:operate`, 30 days, label "Better T3 Notch"). The token is stored in `~/Library/Application Support/BetterT3Notch/` with owner-only permissions, and re-issued if the server rejects it.
 - Streams the thread list (`orchestration.subscribeShell`) and, for the visible threads only, their activity (`orchestration.subscribeThread`) over T3's WebSocket RPC (orchestration protocol 2). A newer protocol shows "Needs an update".
 - Live `+/−` counts mid-run read only the patch of each file edit from T3's local database, read-only, because the server doesn't send it. The exact numbers arrive with the run's checkpoint either way.
+- **Your other machines** show up too, with the machine's name next to the project, and nothing to install on them:
+  - It follows the machines this Mac's T3 Code is linked to (`t3 environment list`, checked every 5 minutes) and connects to each one at the address T3 uses, usually its T3 Connect tunnel.
+  - For a token, it runs that machine's own T3 CLI over SSH, once (`t3 auth session issue`, read + operate, 1 year, label "Better T3 Notch (this Mac's name)"). It finds the machine on your tailnet with `tailscale status`, so this needs Tailscale SSH turned on for that machine.
+  - Tokens live in `~/Library/Application Support/BetterT3Notch/remote/`, owner-only. A revoked or expired one is minted again by itself. Revoke it on that machine under Settings → Sharing & access.
 
 ## Development
 
@@ -117,6 +121,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 | `T3NOTCH_ALLOW_CAPTURE=1` | let screenshots include the notch for this launch |
 | `T3NOTCH_FORCE_EXPANDED=1` | keep the list open |
 | `T3NOTCH_RUNTIME_FILE=path` | read the server address from another file |
+| `T3NOTCH_DUMP=path` | write every thread the notch sees (all machines), its status and shelf, and the counts, as JSON |
 
 - `scripts/screenshots.sh` regenerates `docs/screenshots/` (run it from an empty desktop).
 - `scripts/extract-logos.py /path/to/t3code` refreshes the provider logos from T3 Code's sources.

@@ -183,11 +183,12 @@ final class ThreadStore: ObservableObject {
     private var lastPhases: [String: RunPhase] = [:]
     private var lastPRs: [String: PullRequestInfo] = [:]
     private var limitChimed: Set<String> = []
-    private var commandOutputStreaming = false
-    private var outputWatch: (threadId: String, itemId: String, requestId: String)?
+    private var outputWatch: (threadId: String, itemId: String, requestId: String, conn: Connection)?
     private var outputText = ""
     /// Streamed file edits come without their patch; look each up once for live +/- counts.
     private var fetchedEdits: Set<String> = []
+    /// Connections being watched for threads that went stale (see `watchForStaleThreads`).
+    private var staleWatches: Set<ObjectIdentifier> = []
     private var recomputeScheduled = false
     private var eventClearTask: Task<Void, Never>?
     /// The pop-up goes away once T3 Code says you've seen it: its read receipt (`lastVisitedAt`)
@@ -207,19 +208,19 @@ final class ThreadStore: ObservableObject {
 
     // Per-thread detail (only for visible threads)
     private var details: [String: [String: TurnItem]] = [:]
-    private var threadRequests: [String: String] = [:] // threadId -> requestId
-    private var requestThreads: [String: String] = [:] // requestId -> threadId
-    private var commandThreads: [String: String] = [:] // requestId -> threadId (dispatchCommand)
 
-    // Connection
-    private var socket: URLSessionWebSocketTask?
-    private var generation = 0
-    private var nextRequestId = 1
-    private var shellRequestId = ""
-    private var environmentId: String?
-    private var pingTimer: Timer?
-    private var retryDelay: TimeInterval = 1
+    // Connections: this Mac's T3 server, and the other machines it's linked to.
+    //
+    // Threads are keyed by their own id on this Mac, and by "<environmentId>/<id>" on another
+    // machine (ids are only unique per machine). Everything sent to a server uses its own id.
+    private var local: Connection!
+    private var remotes: [String: Connection] = [:]
+    private var remoteLinks: [String: LinkedEnvironment] = [:]
     private let auth = TokenStore()
+    private let remoteTokens = RemoteTokens()
+    /// Connections whose shell snapshot just (re)arrived: their threads we didn't know yet are
+    /// the starting point, not news, so they don't pop up or chime.
+    private var freshSnapshots: Set<String> = []
 
     func start() {
         if !Self.demo.threads.isEmpty {
@@ -228,7 +229,28 @@ final class ThreadStore: ObservableObject {
             scheduleRecompute()
             return
         }
-        connect()
+        local = Connection(remoteId: nil, label: "", pingEvery: 20, silenceLimit: nil) { [weak self] in
+            guard let self else { throw ConnectError.serverDown }
+            return try await self.localEndpoint()
+        }
+        local.delegate = self
+        local.start()
+        Task { await refreshRemotes() }
+        // Machines get linked and unlinked in T3's settings; pick that up without a restart.
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { await self?.refreshRemotes() }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // Sockets that slept through a network change can look alive for a while: start
+            // the other machines' over now, and mint again at once if one was waiting.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.remoteTokens.resetBackoff()
+                self.remotes.values.forEach { $0.reconnectNow() }
+            }
+        }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -267,7 +289,8 @@ final class ThreadStore: ObservableObject {
     // MARK: Opening threads
 
     func open(_ thread: T3Thread) {
-        if let env = environmentId, let url = URL(string: "t3code://threads/\(env)/\(thread.id)") {
+        if let (conn, id) = route(thread.id), let env = conn.environmentId,
+           let url = URL(string: "t3code://threads/\(env)/\(id)") {
             closeForT3()
             NSWorkspace.shared.open(url)
         } else if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.t3BundleId) {
@@ -323,151 +346,135 @@ final class ThreadStore: ObservableObject {
     }
 
     private func dispatch(_ thread: T3Thread, _ command: [String: Any]) {
-        guard socket != nil else { failed[thread.id] = "Not connected to T3 Code"; return }
+        guard let (conn, id) = route(thread.id), conn.isOpen else {
+            failed[thread.id] = "Not connected to T3 Code"
+            return
+        }
         var command = command
+        command["threadId"] = id // the server's own id, not the notch's key
         command["commandId"] = "better-t3-notch:\(UUID().uuidString.lowercased())"
         failed[thread.id] = nil
         sending.insert(thread.id)
-        let requestId = send(tag: "orchestration.dispatchCommand", payload: command)
-        commandThreads[requestId] = thread.id
+        let requestId = conn.send(tag: "orchestration.dispatchCommand", payload: command)
+        conn.commandThreads[requestId] = thread.id
     }
 
-    // MARK: Connection
+    // MARK: Connections
 
-    private func connect() {
-        generation += 1
-        let gen = generation
-        Task {
-            do {
-                guard let origin = Self.serverOrigin() else { throw ConnectError.serverDown }
-                // Re-read every time: a restarted server may be on a new port (or a new install).
-                if let env = await Self.fetchEnvironment(origin) {
-                    environmentId = env.id ?? environmentId
-                    commandOutputStreaming = env.commandOutputStreaming
-                    if let v = env.protocolVersion, v != Self.protocolVersion {
-                        incompatible = "T3 Code \(env.serverVersion ?? "") speaks protocol \(v); Better T3 Notch speaks \(Self.protocolVersion)"
-                        throw ConnectError.incompatible
-                    }
-                    incompatible = nil
-                }
-                guard let token = try await auth.token() else { throw ConnectError.noToken }
-                guard gen == generation else { return }
-                open(origin: origin, token: token, gen: gen)
-            } catch {
-                scheduleReconnect(gen)
+    /// This Mac's server: wherever its runtime file says, re-read on every connect, since a
+    /// restarted server may be on a new port (or a new install).
+    private func localEndpoint() async throws -> Endpoint {
+        guard let origin = Self.serverOrigin() else { throw ConnectError.serverDown }
+        let env = await ServerDescriptor.fetch(origin)
+        if let env, let v = env.protocolVersion, v != Self.protocolVersion {
+            incompatible = "T3 Code \(env.serverVersion ?? "") speaks protocol \(v); Better T3 Notch speaks \(Self.protocolVersion)"
+            throw ConnectError.incompatible
+        }
+        if env != nil { incompatible = nil }
+        guard let token = try await auth.token() else { throw ConnectError.noToken }
+        return Endpoint(origin: origin, token: token, environmentId: env?.id ?? local.environmentId,
+                        commandOutputStreaming: env?.commandOutputStreaming ?? local.commandOutputStreaming)
+    }
+
+    /// Another machine's server, at the first of its addresses that answers as it.
+    private func remoteEndpoint(_ link: LinkedEnvironment) async throws -> Endpoint {
+        guard let (origin, env) = await RemoteAccess.origin(for: link) else { throw ConnectError.serverDown }
+        guard let token = await remoteTokens.token(for: link) else { throw ConnectError.noToken }
+        return Endpoint(origin: origin, token: token, environmentId: link.environmentId,
+                        commandOutputStreaming: env.commandOutputStreaming)
+    }
+
+    /// Follow the machines T3 Code is linked to: connect to new ones, drop unlinked ones.
+    private func refreshRemotes() async {
+        guard let links = await RemoteAccess.linkedEnvironments() else { return }
+        let wanted = Dictionary(links.map { ($0.environmentId, $0) }, uniquingKeysWith: { a, _ in a })
+        // Unlinked, or linked again with other addresses or another name: start that one over.
+        for (id, conn) in remotes where wanted[id] != remoteLinks[id] {
+            log.notice("unlinked: \(conn.label, privacy: .public)")
+            conn.close()
+            remotes[id] = nil
+            remoteLinks[id] = nil
+            dropThreads(of: conn)
+        }
+        updateConnected()
+        for link in wanted.values where remotes[link.environmentId] == nil && link.environmentId != local.environmentId {
+            remoteLinks[link.environmentId] = link
+            log.notice("linked: \(link.label, privacy: .public)")
+            // T3's own client pings every 5 s and gives up after 15 s of silence: tunnels drop
+            // idle sockets, and a dead route otherwise looks alive for minutes.
+            let conn = Connection(remoteId: link.environmentId, label: link.label,
+                                  pingEvery: 5, silenceLimit: 15) { [weak self] in
+                guard let self else { throw ConnectError.serverDown }
+                return try await self.remoteEndpoint(link)
             }
+            conn.delegate = self
+            remotes[link.environmentId] = conn
+            conn.start()
         }
     }
 
-    private func open(origin: URL, token: String, gen: Int) {
-        var comps = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
-        comps.scheme = origin.scheme == "https" ? "wss" : "ws"
-        comps.path = "/ws"
-        comps.queryItems = [.init(name: "orchestrationProtocol", value: String(Self.protocolVersion))]
-        var request = URLRequest(url: comps.url!)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    private var allConnections: [Connection] { (local.map { [$0] } ?? []) + remotes.values }
 
-        let task = URLSession.shared.webSocketTask(with: request)
-        task.maximumMessageSize = 64 * 1024 * 1024 // thread snapshots can be large
-        socket = task
-        threadRequests = [:]
-        requestThreads = [:]
-        fetchedEdits = [] // fresh snapshots drop fetched counts; fetch again
-        task.resume()
-
-        shellRequestId = send(tag: "orchestration.subscribeShell", payload: [:])
-        receive(task, gen: gen)
-
-        pingTimer?.invalidate()
-        pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.sendRaw(["_tag": "Ping"]) }
-        }
+    /// The store's key for a server's thread (or project) id.
+    private func key(_ id: String, _ conn: Connection) -> String {
+        conn.remoteId.map { "\($0)/\(id)" } ?? id
     }
 
-    private func receive(_ task: URLSessionWebSocketTask, gen: Int) {
-        task.receive { [weak self] result in
-            switch result {
-            case .success(let message):
-                // Parse off the main thread; snapshots can be hundreds of KB.
-                let data: Data? = switch message {
-                case .string(let s): s.data(using: .utf8)
-                case .data(let d): d
-                @unknown default: nil
-                }
-                if let size = data?.count, size > 200_000 { log.notice("large message: \(size) bytes") }
-                let incoming = data.flatMap(Incoming.parse)
-                Task { @MainActor in
-                    guard let self, gen == self.generation else { return }
-                    if !self.connected { self.connected = true; self.retryDelay = 1 }
-                    if let incoming { self.handle(incoming) }
-                    self.receive(task, gen: gen)
-                }
-            case .failure:
-                let status = (task.response as? HTTPURLResponse)?.statusCode
-                Task { @MainActor in
-                    guard let self, gen == self.generation else { return }
-                    if status == 401 || status == 403 { self.auth.discard() }
-                    if status == 426 { // orchestration_protocol_incompatible
-                        self.incompatible = "T3 Code needs a newer orchestration protocol than \(Self.protocolVersion)"
-                    }
-                    self.scheduleReconnect(gen)
-                }
-            }
-        }
+    /// Which server a key belongs to, and its id there.
+    private func route(_ key: String) -> (Connection, String)? {
+        guard let slash = key.firstIndex(of: "/") else { return local.map { ($0, key) } }
+        guard let conn = remotes[String(key[..<slash])] else { return nil }
+        return (conn, String(key[key.index(after: slash)...]))
     }
 
-    private func scheduleReconnect(_ gen: Int) {
-        guard gen == generation else { return }
-        connected = false
-        socket?.cancel(with: .goingAway, reason: nil)
-        socket = nil
-        pingTimer?.invalidate()
-        let delay = retryDelay
-        retryDelay = min(retryDelay * 2, 15)
-        // Don't leave "running" threads on screen if T3 Code went away for good;
-        // short blips (server restart, sleep/wake) reconnect before this fires.
-        Task {
-            try? await Task.sleep(for: .seconds(6))
-            guard !connected else { return }
-            threads = []
-            summary = NotchSummary()
-            dismissEvent()
-            sending = []
-        }
-        Task {
-            try? await Task.sleep(for: .seconds(delay))
-            guard gen == generation else { return }
-            connect()
-        }
+    private func belongs(_ key: String, to conn: Connection) -> Bool {
+        conn.remoteId.map { key.hasPrefix("\($0)/") } ?? !key.contains("/")
     }
 
-    @discardableResult
-    private func send(tag: String, payload: [String: Any]) -> String {
-        let id = String(nextRequestId)
-        nextRequestId += 1
-        sendRaw(["_tag": "Request", "id": id, "tag": tag, "payload": payload, "headers": [] as [Any]])
-        return id
+    private func connectionKey(_ conn: Connection) -> String { conn.remoteId ?? "" }
+
+    private func updateConnected() {
+        let any = allConnections.contains(where: \.connected)
+        if connected != any { connected = any }
     }
 
-    private func sendRaw(_ object: [String: Any]) {
-        guard let socket, let data = try? JSONSerialization.data(withJSONObject: object),
-              let text = String(data: data, encoding: .utf8) else { return }
-        socket.send(.string(text)) { _ in }
+    /// A server is gone for good (or for longer than a blip): its threads leave the notch rather
+    /// than sit there "running".
+    private func dropThreads(of conn: Connection) {
+        // A machine that stays off fails a connect every 15 s: nothing to clear, nothing to redraw.
+        guard shell.keys.contains(where: { belongs($0, to: conn) })
+                || projects.keys.contains(where: { belongs($0, to: conn) })
+                || details.keys.contains(where: { belongs($0, to: conn) })
+                || sending.contains(where: { belongs($0, to: conn) })
+                || failed.keys.contains(where: { belongs($0, to: conn) })
+                || commandOutput.keys.contains(where: { belongs($0, to: conn) })
+                || outputWatch?.conn === conn else { return }
+        shell = shell.filter { !belongs($0.key, to: conn) }
+        projects = projects.filter { !belongs($0.key, to: conn) }
+        details = details.filter { !belongs($0.key, to: conn) }
+        sending = sending.filter { !belongs($0, to: conn) }
+        failed = failed.filter { !belongs($0.key, to: conn) }
+        commandOutput = commandOutput.filter { !belongs($0.key, to: conn) }
+        if let id = eventId, belongs(id, to: conn) { dismissEvent() }
+        if let id = heldFinishId, belongs(id, to: conn) { cancelHeldFinish() }
+        if let watch = outputWatch, watch.conn === conn { outputWatch = nil }
+        scheduleRecompute()
     }
 
     // MARK: Incoming
 
-    private func handle(_ incoming: Incoming) {
+    private func handle(_ incoming: Incoming, from conn: Connection) {
         switch incoming {
         case .chunk(let requestId, let values):
-            sendRaw(["_tag": "Ack", "requestId": requestId]) // flow control: server waits for this
-            if requestId == shellRequestId {
-                values.compactMap(\.shell).forEach(apply)
+            conn.sendRaw(["_tag": "Ack", "requestId": requestId]) // flow control: server waits for this
+            if requestId == conn.shellRequestId {
+                values.compactMap(\.shell).forEach { apply($0, from: conn) }
                 scheduleRecompute()
-            } else if let threadId = requestThreads[requestId] {
-                values.compactMap(\.thread).forEach { apply($0, to: threadId) }
+            } else if let threadId = conn.requestThreads[requestId] {
+                let k = key(threadId, conn)
+                values.compactMap(\.thread).forEach { apply($0, to: k) }
                 scheduleRecompute()
-            } else if let watch = outputWatch, watch.requestId == requestId {
+            } else if let watch = outputWatch, watch.conn === conn, watch.requestId == requestId {
                 for frame in values.compactMap(\.output) {
                     outputText = frame.replace ? frame.text : outputText + frame.text
                     if outputText.count > 8000 { outputText = String(outputText.suffix(4000)) }
@@ -475,31 +482,36 @@ final class ThreadStore: ObservableObject {
                 commandOutput[watch.threadId] = Self.tailLines(outputText, 4)
             }
         case .exit(let requestId, let ok, let message):
-            if outputWatch?.requestId == requestId { outputWatch = nil } // command finished
-            if let threadId = commandThreads.removeValue(forKey: requestId) {
-                sending.remove(threadId)
-                if !ok { failed[threadId] = message ?? "T3 Code rejected that" }
-            } else if requestId == shellRequestId {
-                scheduleReconnect(generation) // shell stream should never end
-            } else if let threadId = requestThreads.removeValue(forKey: requestId) {
-                threadRequests[threadId] = nil
+            if let watch = outputWatch, watch.conn === conn, watch.requestId == requestId { outputWatch = nil } // command finished
+            if let threadKey = conn.commandThreads.removeValue(forKey: requestId) {
+                sending.remove(threadKey)
+                if !ok { failed[threadKey] = message ?? "T3 Code rejected that" }
+            } else if requestId == conn.shellRequestId {
+                conn.shellEnded() // shell stream should never end
+            } else if let threadId = conn.requestThreads.removeValue(forKey: requestId) {
+                conn.threadRequests[threadId] = nil
             }
         case .ignored:
             break
         }
     }
 
-    private func apply(_ item: ShellItem) {
+    private func apply(_ item: ShellItem, from conn: Connection) {
+        let prefix = conn.remoteId
         switch item {
         case .snapshot(let threads, let projects):
-            shell = Dictionary(threads.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            self.projects = projects
+            shell = shell.filter { !belongs($0.key, to: conn) }
+            for t in threads.map({ $0.namespaced(prefix) }) where shell[t.id] == nil { shell[t.id] = t }
+            self.projects = self.projects.filter { !belongs($0.key, to: conn) }
+            for (id, title) in projects { self.projects[key(id, conn)] = title }
+            freshSnapshots.insert(connectionKey(conn))
         case .projects(let projects):
-            self.projects.merge(projects) { _, new in new }
+            for (id, title) in projects { self.projects[key(id, conn)] = title }
         case .threadUpdated(let thread):
-            shell[thread.id] = thread
+            let t = thread.namespaced(prefix)
+            shell[t.id] = t
         case .threadRemoved(let id):
-            shell[id] = nil
+            shell[key(id, conn)] = nil
         }
     }
 
@@ -536,23 +548,62 @@ final class ThreadStore: ObservableObject {
     }
 
     private func recompute() {
-        // Subagents ask through their parent: an app-owned child's question shows on its ancestors.
+        // Subagents ask through their parent: an app-owned child's question shows on its ancestors,
+        // up through subagents and side chats. A side chat asks its parent directly
+        // (pendingSubagentRequestsByThread).
         var childRequests: [String: ThreadStatus] = [:]
+        // Threads whose only request is a side chat's question: T3 shows it there, but a plain
+        // question doesn't go on to the machine a task was delegated from.
+        var sideChatQuestionOnly: Set<String> = []
+        for child in shell.values {
+            guard let request = child.sideChatRequest, let parent = child.parentId else { continue }
+            if childRequests[parent] == nil, request == .awaitingInput { sideChatQuestionOnly.insert(parent) }
+            if request == .pendingApproval { sideChatQuestionOnly.remove(parent) }
+            if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
+        }
         for child in shell.values {
             guard let request = child.subagentRequest else { continue }
             var seen: Set<String> = [child.id]
             var current: ShellThread? = child
-            while let c = current, c.isSubagent, let parent = c.parentId, !seen.contains(parent) {
+            while let c = current, c.isSubagent || c.isSideChat, let parent = c.parentId, !seen.contains(parent) {
                 seen.insert(parent)
+                sideChatQuestionOnly.remove(parent)
                 if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
                 current = shell[parent]
             }
+        }
+        // A task delegated from another machine asks through the thread that delegated it, and
+        // on up that thread's subagent chain (T3's delegated roll-up). Repeated until it settles,
+        // so a chain across several machines (Mac -> Air -> Linux) reaches the top.
+        let delegated = shell.values.filter { task in
+            guard delegatingParent(of: task) != nil else { return false }
+            let runsIn = task.id.firstIndex(of: "/").map { String(task.id[..<$0]) } ?? local?.environmentId
+            return runsIn != task.delegatedFromEnvironment
+        }
+        for _ in 0..<8 {
+            let before = (childRequests, sideChatQuestionOnly)
+            for task in delegated {
+                let nested = sideChatQuestionOnly.contains(task.id) ? nil : childRequests[task.id]
+                guard let parent = delegatingParent(of: task),
+                      let request = task.delegatedRequest == .pendingApproval ? .pendingApproval
+                        : nested ?? task.delegatedRequest else { continue }
+                var seen: Set<String> = []
+                var next: ShellThread? = parent
+                while let p = next, seen.insert(p.id).inserted {
+                    sideChatQuestionOnly.remove(p.id)
+                    if childRequests[p.id] != .pendingApproval { childRequests[p.id] = request }
+                    next = p.isSubagent || p.isSideChat ? p.parentId.flatMap { shell[$0] } : nil
+                }
+            }
+            if childRequests == before.0 && sideChatQuestionOnly == before.1 { break }
         }
         // Only write where it changed: rewriting all ~400 structs per update was measurable.
         for (id, request) in childRequests where shell[id]?.childRequest != request { shell[id]?.childRequest = request }
         for (id, t) in shell where t.childRequest != nil && childRequests[id] == nil { shell[id]?.childRequest = nil }
 
-        let candidates = shell.values.filter { !$0.isChild && !$0.archived && !$0.deleted }
+        let candidates = shell.values.filter {
+            !$0.isChild && !$0.archived && !$0.deleted && !$0.isShownUnderParent(delegatingParent(of: $0))
+        }
         // Sorted into T3's shelves. Snoozed threads stay out of sight until they wake (or raise
         // their hand, which wakes them); settled ones only count if they need you.
         let now = Date()
@@ -617,13 +668,14 @@ final class ThreadStore: ObservableObject {
             if let id = Self.demo.eventId, threads.isEmpty, let t = rows.first(where: { $0.id == id }) { showEvent(t) }
         }
         if summary != self.summary { self.summary = summary }
+        if let path = Self.dumpPath { dump(candidates, now: now, to: path) }
         if listedIds != inboxIds { objectWillChange.send(); inboxIds = listedIds }
         if rows != threads { threads = rows }
     }
 
     private func row(_ s: ShellThread) -> T3Thread {
         var t = T3Thread(
-            id: s.id, title: s.title, project: projects[s.projectId] ?? "", status: s.status,
+            id: s.id, title: s.title, project: projectName(s), status: s.status,
             startedAt: s.startedAt, updatedAt: s.updatedAt, runId: s.runId,
             model: s.model.map(Self.prettyModel), provider: s.provider, branch: s.branch, pullRequest: s.pullRequest
         )
@@ -674,6 +726,50 @@ final class ThreadStore: ObservableObject {
         return t
     }
 
+    /// The thread that delegated `t` to its machine, if the notch follows that thread's machine.
+    private func delegatingParent(of t: ShellThread) -> ShellThread? {
+        guard let env = t.delegatedFromEnvironment, let id = t.delegatedFromThread else { return nil }
+        if env == local?.environmentId { return shell[id] }
+        return remotes[env] == nil ? nil : shell["\(env)/\(id)"]
+    }
+
+    /// `T3NOTCH_DUMP=path`: every thread the notch knows (top level), where it put it, and the
+    /// summary, as JSON, for checking the notch against T3's own lists.
+    private static let dumpPath = ProcessInfo.processInfo.environment["T3NOTCH_DUMP"]
+
+    private func dump(_ threads: [ShellThread], now: Date, to path: String) {
+        let rows: [[String: Any]] = threads.map { t in
+            let slash = t.id.firstIndex(of: "/")
+            let shelf = t.shelf(now: now)
+            return [
+                "environment": slash.map { String(t.id[..<$0]) } ?? (local?.environmentId ?? ""),
+                "id": slash.map { String(t.id[t.id.index(after: $0)...]) } ?? t.id,
+                "title": t.title,
+                "status": t.status.label.isEmpty ? "idle" : t.status.label,
+                "shelf": "\(shelf)",
+                "working": shelf != .snoozed && t.status.isBusy,
+            ]
+        }
+        let s = summary
+        let json: [String: Any] = [
+            "connected": allConnections.map { ["environment": $0.environmentId ?? "", "label": $0.label, "connected": $0.connected] },
+            "summary": ["working": s.working, "questions": s.questions, "plans": s.plans, "failed": s.failed,
+                        "done": s.done, "snoozed": s.snoozed, "settled": s.settled],
+            "threads": rows,
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+    }
+
+    /// The project, and for another machine's thread, which machine ("api · MacBook Air").
+    private func projectName(_ s: ShellThread) -> String {
+        let project = projects[s.projectId] ?? ""
+        guard let slash = s.id.firstIndex(of: "/"), let machine = remotes[String(s.id[..<slash])]?.label,
+              !machine.isEmpty else { return project }
+        return project.isEmpty ? machine : "\(project) · \(machine)"
+    }
+
     /// Live "+N −M" before the run's checkpoint lands. The server strips the patch (`diffStr`)
     /// from file edits in every response, so read just that field from T3's local database,
     /// read-only, by item id. If T3 changes its storage this quietly yields nothing and the
@@ -681,6 +777,8 @@ final class ThreadStore: ObservableObject {
     private func fetchEditCounts(_ visible: some Sequence<ShellThread>) {
         var wanted: [String: String] = [:] // itemId -> threadId
         for thread in visible {
+            // T3's database here only has this Mac's threads.
+            guard !thread.id.contains("/") else { continue }
             guard let runId = thread.runId, let items = details[thread.id]?.values else { continue }
             let run = items.filter { $0.runId == runId }
             if run.contains(where: { $0.type == "checkpoint" && $0.linesAdded != nil }) { continue }
@@ -710,14 +808,15 @@ final class ThreadStore: ObservableObject {
         let itemId = threadId.flatMap { id in threads.first { $0.id == id }?.runningCommandId }
         if let w = outputWatch, w.threadId == threadId, w.itemId == itemId { return }
         if let w = outputWatch {
-            sendRaw(["_tag": "Interrupt", "requestId": w.requestId, "interruptors": [] as [Any]])
+            w.conn.sendRaw(["_tag": "Interrupt", "requestId": w.requestId, "interruptors": [] as [Any]])
             outputWatch = nil
         }
-        guard commandOutputStreaming, socket != nil, let threadId, let itemId else { return }
+        guard let threadId, let itemId, let (conn, id) = route(threadId),
+              conn.commandOutputStreaming, conn.isOpen else { return }
         outputText = ""
-        let requestId = send(tag: "orchestration.subscribeCommandOutput",
-                             payload: ["threadId": threadId, "itemId": itemId])
-        outputWatch = (threadId, itemId, requestId)
+        let requestId = conn.send(tag: "orchestration.subscribeCommandOutput",
+                                  payload: ["threadId": id, "itemId": itemId])
+        outputWatch = (threadId, itemId, requestId, conn)
     }
 
     /// Terminal text -> last `n` visible lines: strip ANSI escapes, honor carriage returns.
@@ -890,21 +989,24 @@ final class ThreadStore: ObservableObject {
     }
 
     private func syncDetailSubscriptions(_ wanted: Set<String>) {
-        guard socket != nil else { return }
-        for (threadId, requestId) in threadRequests where !wanted.contains(threadId) {
-            sendRaw(["_tag": "Interrupt", "requestId": requestId, "interruptors": [] as [Any]])
-            threadRequests[threadId] = nil
-            requestThreads[requestId] = nil
-            if let ids = details.removeValue(forKey: threadId)?.keys { fetchedEdits.subtract(ids) }
-            commandOutput[threadId] = nil
-            failed[threadId] = nil
+        for conn in allConnections where conn.isOpen {
+            for (threadId, requestId) in conn.threadRequests where !wanted.contains(key(threadId, conn)) {
+                let k = key(threadId, conn)
+                conn.sendRaw(["_tag": "Interrupt", "requestId": requestId, "interruptors": [] as [Any]])
+                conn.threadRequests[threadId] = nil
+                conn.requestThreads[requestId] = nil
+                if let ids = details.removeValue(forKey: k)?.keys { fetchedEdits.subtract(ids) }
+                commandOutput[k] = nil
+                failed[k] = nil
+            }
         }
-        for threadId in wanted where threadRequests[threadId] == nil {
-            log.notice("subscribe thread \(threadId, privacy: .public)")
-            let requestId = send(tag: "orchestration.subscribeThread",
-                                 payload: ["threadId": threadId, "acceptBoundedSnapshot": true])
-            threadRequests[threadId] = requestId
-            requestThreads[requestId] = threadId
+        for k in wanted {
+            guard let (conn, threadId) = route(k), conn.isOpen, conn.threadRequests[threadId] == nil else { continue }
+            log.notice("subscribe thread \(k, privacy: .public)")
+            let requestId = conn.send(tag: "orchestration.subscribeThread",
+                                      payload: ["threadId": threadId, "acceptBoundedSnapshot": true])
+            conn.threadRequests[threadId] = requestId
+            conn.requestThreads[requestId] = threadId
         }
     }
 
@@ -914,15 +1016,24 @@ final class ThreadStore: ObservableObject {
         let now = Dictionary(threads.map { ($0.id, $0.phase) }, uniquingKeysWith: { a, _ in a })
         let prs = Dictionary(threads.compactMap { t in t.pr.map { (t.id, $0) } }, uniquingKeysWith: { a, _ in a })
         let firstLoad = lastPhases.isEmpty
+        let fresh = freshSnapshots
         defer {
             lastPhases = now
             lastPRs = prs
             limitChimed.formIntersection(now.keys) // forget threads that are gone
+            freshSnapshots = []
         }
         guard !firstLoad else { return } // first snapshot: no peeks
+        /// A thread we first hear of in a server's snapshot (another machine coming online, or
+        /// this one back after a while) is how things stand, not something that just happened.
+        func isNew(_ id: String) -> Bool {
+            guard lastPhases[id] == nil else { return false }
+            guard let slash = id.firstIndex(of: "/") else { return fresh.contains("") }
+            return fresh.contains(String(id[..<slash]))
+        }
 
         // PR news: checks went red, or a review decision arrived.
-        for (id, pr) in prs {
+        for (id, pr) in prs where !isNew(id) {
             let before = lastPRs[id]
             if pr.checks == .failing && before?.checks != .failing {
                 log.notice("checks failing: \(id, privacy: .public)")
@@ -938,7 +1049,7 @@ final class ThreadStore: ObservableObject {
             dismissEvent()
         }
 
-        for (id, phase) in now {
+        for (id, phase) in now where !isNew(id) {
             let before = lastPhases[id]
             let wasActive = before == .active || before == .needsYou
             // Already seen in T3 Code (its receipt came in the same update): the sound, no card.
@@ -1133,26 +1244,61 @@ final class ThreadStore: ObservableObject {
     }
 
     /// Orchestration protocol this client speaks (`ORCHESTRATION_PROTOCOL_VERSION` in t3code contracts).
-    static let protocolVersion = 2
-
-    private struct Environment {
-        let id, serverVersion: String?
-        let protocolVersion: Int?
-        let commandOutputStreaming: Bool
-    }
-
-    private static func fetchEnvironment(_ origin: URL) async -> Environment? {
-        let url = origin.appendingPathComponent(".well-known/t3/environment")
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        let caps = json["capabilities"] as? [String: Any]
-        return Environment(id: json["environmentId"] as? String,
-                           serverVersion: json["serverVersion"] as? String,
-                           protocolVersion: (json["orchestrationProtocolVersion"] as? NSNumber)?.intValue,
-                           commandOutputStreaming: caps?["commandOutputStreaming"] as? Bool ?? false)
-    }
+    nonisolated static let protocolVersion = 2
 
     private enum ConnectError: Error { case serverDown, noToken, incompatible }
+}
+
+// MARK: - Connection events
+
+extension ThreadStore: ConnectionDelegate {
+    func connectionDidOpen(_ connection: Connection) {
+        // Fresh thread snapshots drop fetched counts; fetch again.
+        if connection.remoteId == nil { fetchedEdits = [] }
+    }
+
+    func connection(_ connection: Connection, received incoming: Incoming) {
+        handle(incoming, from: connection)
+        updateConnected()
+    }
+
+    func connectionDidDrop(_ connection: Connection, status: Int?) {
+        if status == 401 || status == 403 { // revoked or expired: mint a new one
+            if let id = connection.remoteId { remoteTokens.discard(id) } else { auth.discard() }
+        }
+        if status == 426, connection.remoteId == nil { // orchestration_protocol_incompatible
+            incompatible = "T3 Code needs a newer orchestration protocol than \(Self.protocolVersion)"
+        }
+        // Their answers are lost with the socket: stop the spinners.
+        connection.commandThreads.values.forEach { sending.remove($0) }
+        connection.commandThreads = [:]
+        if let watch = outputWatch, watch.conn === connection { outputWatch = nil }
+        updateConnected()
+        watchForStaleThreads(connection)
+    }
+
+    /// Don't leave "running" threads on screen if a server went away for good. Short blips
+    /// (server restart, sleep/wake) get 6 s to come back; a server that answers but is still
+    /// sending its snapshot keeps its last-known threads longer (no flicker after every wake),
+    /// but never past 100 s: by then the connection has given up on that socket at least once.
+    private func watchForStaleThreads(_ connection: Connection) {
+        let id = ObjectIdentifier(connection)
+        guard staleWatches.insert(id).inserted else { return }
+        Task {
+            defer { staleWatches.remove(id) }
+            while true {
+                try? await Task.sleep(for: .seconds(2))
+                // Current again, or no longer the connection for that machine (unlinked or replaced).
+                guard !connection.connected, let since = connection.downSince,
+                      connection.remoteId.map({ remotes[$0] === connection }) ?? true else { return }
+                let down = Date().timeIntervalSince(since)
+                if down > 100 || (down > 6 && !connection.answering) {
+                    dropThreads(of: connection)
+                    return
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Auth token
@@ -1199,8 +1345,7 @@ final class TokenStore {
 
     private static func mint() async -> String? {
         await Task.detached {
-            let cli = NSString(string: "~/.t3/bin/t3").expandingTildeInPath
-            guard FileManager.default.isExecutableFile(atPath: cli) else { return nil }
+            guard let cli = RemoteAccess.localCLI else { return nil }
             let p = Process()
             p.executableURL = URL(fileURLWithPath: cli)
             p.arguments = ["auth", "session", "issue"]
@@ -1224,14 +1369,25 @@ final class TokenStore {
 enum RunPhase: Sendable { case active, needsYou, completed, failed, other }
 
 struct ShellThread: Sendable {
-    let id, title, projectId: String
+    /// The store's keys: the server's own ids, prefixed "<environmentId>/" for another machine.
+    private(set) var id: String
+    let title: String
+    private(set) var projectId: String
     let startedAt: Date?
     let updatedAt: Date
     let runId, model, branch, pullRequest, pendingRequestId: String?
     var provider: String?
     let isChild, archived, deleted: Bool
-    let parentId: String?
+    private(set) var parentId: String?
     let isSubagent: Bool
+    /// A side chat: hidden under its parent, and asks through it.
+    let isSideChat: Bool
+    /// What a side chat asks its parent (approvals and questions alike: it talks to the user).
+    let sideChatRequest: ThreadStatus?
+    /// The thread (on any machine) that delegated this one, which T3 lists it under.
+    var delegatedFromEnvironment, delegatedFromThread: String?
+    /// What this thread, a task delegated from another machine, asks the thread that delegated it.
+    let delegatedRequest: ThreadStatus?
     /// What this thread asks its parent for, if it's a live app-owned subagent with a request.
     let subagentRequest: ThreadStatus?
     /// T3's pill inputs (see `presentThreadShell` / `shellRuntime` in client-runtime models.ts).
@@ -1272,7 +1428,13 @@ struct ShellThread: Sendable {
         if pendingGuestMessages > 0 { return .guestRequest }
         if (runtimeStatus == "running" && !blockedOnThreadWait) || runtimeStatus == "waiting" { return .working }
         if ["preparing", "starting", "queued"].contains(runtimeStatus) { return .connecting }
-        if (runtimeStatus == "running" && blockedOnThreadWait) || backgroundHoldsCompletion { return .waiting }
+        // A failed run isn't parked by its background work (shellRuntime's `status !== "failed"`):
+        // T3's pill says Waiting, but it's off the Working shelf; the notch shows the failure.
+        if (runtimeStatus == "running" && blockedOnThreadWait)
+            || (backgroundHoldsCompletion && latestRunStatus != "failed") {
+            // isThreadWorking(): a settled plan run waits on you, not on its background work.
+            return planMode && runSettled && hasActionableProposedPlan ? .planReady : .waiting
+        }
         if latestRunStatus == "failed", lastVisitedAt.map({ v in latestRunCompletedAt.map { $0 > v } ?? true }) ?? true {
             return .failed
         }
@@ -1282,6 +1444,24 @@ struct ShellThread: Sendable {
     }
 
     mutating func refreshStatus() { status = resolveStatus() }
+
+    /// T3 lists work delegated from a thread it can see (here or on another machine) under that
+    /// thread, not on its own; the parent reads as Waiting meanwhile, and shows what the task
+    /// asks you (see `recompute`).
+    func isShownUnderParent(_ parent: ShellThread?) -> Bool {
+        guard let parent else { return false }
+        return !parent.archived && !parent.deleted
+    }
+
+    /// The same thread, with its ids keyed for another machine (nil: this Mac, unchanged).
+    func namespaced(_ environmentId: String?) -> ShellThread {
+        guard let environmentId else { return self }
+        var t = self
+        t.id = "\(environmentId)/\(id)"
+        t.projectId = "\(environmentId)/\(projectId)"
+        t.parentId = parentId.map { "\(environmentId)/\($0)" }
+        return t
+    }
 
     /// When T3 Code counts the pop-up as seen: once its read receipt (`lastVisitedAt`) reaches
     /// this. T3 stamps a visit with the thread's `updatedAt`, which every event moves, so a
@@ -1476,25 +1656,28 @@ enum Incoming: Sendable {
         let pendingKind = pending?["kind"] as? String
         let lineage = t["lineage"] as? [String: Any]
         let isSubagent = lineage?["relationshipToParent"] as? String == "subagent"
+        let isSideChat = lineage?["sideChat"] as? Bool == true
 
-        // shellRuntime(): background work (subagent/monitor/task, not plain commands) parks the
-        // run at idle; otherwise the activity run's status wins over the latest run's.
+        // shellRuntime(): background work that holds the run (see below) parks it at idle;
+        // otherwise the activity run's status wins over the latest run's.
         let tasks = t["pendingBackgroundTasks"] as? [[String: Any]] ?? []
-        // backgroundWorkHoldsCompletion(): awaited work of any kind, or subagent/monitor/task work.
+        // backgroundWorkHoldsCompletion(): awaited work of any kind, or a subagent or background
+        // task. Commands and monitors (a dev server, its watchdog, a PR watch) hold only when
+        // the agent marks them awaited, so a thread minding a PR isn't "working" forever.
+        // T3 reads a kind it doesn't know as background_task, which holds.
         func holdsCompletion(_ task: [String: Any]) -> Bool {
             task["awaited"] as? Bool == true
-                || ["subagent", "monitor", "background_task"].contains(task["kind"] as? String ?? "")
+                || !["command", "monitor"].contains(task["kind"] as? String ?? "")
         }
         let holds = tasks.contains(where: holdsCompletion)
         let parkAtIdle = holds && status != "failed"
         let hasRuntime = t["latestRunId"] is String || t["activeProviderThreadId"] is String || parkAtIdle
         let runtimeStatus: String? = !hasRuntime ? nil
             : parkAtIdle ? "idle" : (t["activityRunStatus"] as? String ?? status)
-        let runtimeWorking = ["preparing", "starting", "running"].contains(runtimeStatus ?? "")
 
         let hasPendingApprovals = pending != nil && pendingKind != "user_input" && pendingKind != "auth_refresh"
+        // presentThreadShell(): any question is waiting on you, blocking the run or not.
         let hasPendingUserInput = pendingKind == "user_input"
-            && ((pending?["blocking"] as? Bool) != false || !runtimeWorking)
 
         // latestRun as presentThreadShell() builds it.
         let hasLatestRun = t["latestRunId"] is String
@@ -1511,7 +1694,18 @@ enum Incoming: Sendable {
         let subagentRequest: ThreadStatus? = {
             guard let kind = pendingKind, kind != "auth_refresh", isSubagent,
                   t["creationSource"] as? String != "provider", childLive else { return nil }
-            return kind == "user_input" ? .awaitingInput : .pendingApproval
+            // The coordinator answers its subagents' questions; only user-only ones go up.
+            guard kind == "user_input" else { return .pendingApproval }
+            return pending?["userOnly"] as? Bool == true ? .awaitingInput : nil
+        }()
+        // What a live delegated task asks the thread that delegated it (T3's delegated roll-up):
+        // approvals, and questions only the user can answer (the coordinator answers the rest).
+        let delegatedFrom = t["delegatedFrom"] as? [String: Any]
+        let delegatedRequest: ThreadStatus? = {
+            guard let kind = pendingKind, kind != "auth_refresh", delegatedFrom != nil,
+                  t["creationSource"] as? String != "provider", childLive else { return nil }
+            guard kind == "user_input" else { return .pendingApproval }
+            return pending?["userOnly"] as? Bool == true ? .awaitingInput : nil
         }()
 
         let pr = (t["pullRequests"] as? [[String: Any]])?.last
@@ -1532,11 +1726,17 @@ enum Incoming: Sendable {
             provider: provider(t),
             // T3's sidebar: forks (and handoffs) are threads of their own; only subagents and
             // side chats live under their parent.
-            isChild: lineage?["parentThreadId"] as? String != nil && (isSubagent || lineage?["sideChat"] as? Bool == true),
+            isChild: lineage?["parentThreadId"] as? String != nil && (isSubagent || isSideChat),
             archived: t["archivedAt"] is String,
             deleted: t["deletedAt"] is String,
             parentId: lineage?["parentThreadId"] as? String,
             isSubagent: isSubagent,
+            isSideChat: isSideChat,
+            sideChatRequest: isSideChat && pendingKind != nil && pendingKind != "auth_refresh"
+                ? (pendingKind == "user_input" ? .awaitingInput : .pendingApproval) : nil,
+            delegatedFromEnvironment: delegatedFrom?["environmentId"] as? String,
+            delegatedFromThread: delegatedFrom?["threadId"] as? String,
+            delegatedRequest: delegatedRequest,
             subagentRequest: subagentRequest,
             hasPendingApprovals: hasPendingApprovals,
             hasPendingUserInput: hasPendingUserInput,
