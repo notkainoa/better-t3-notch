@@ -1301,6 +1301,8 @@ struct ShellThread: Sendable {
         // T3 blocks a live session; "preparing", "waiting" and "queued" are the notch's names
         // for parts of one, so they keep it out too (the safe side: it stays visible).
         if ["preparing", "starting", "running", "waiting", "queued"].contains(runtimeStatus ?? "") { return false }
+        // Parked on awaited background work: the runtime reads idle, but the run isn't over.
+        if backgroundHoldsCompletion || blockedOnThreadWait { return false }
         if settledOverride == "settled" { return true }
         if settledOverride == "active" { return false }
         return pr?.state == "merged" || pr?.state == "closed"
