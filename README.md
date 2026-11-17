@@ -107,6 +107,10 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 - On first launch it creates its own bearer token with T3's CLI (`~/.t3/bin/t3 auth session issue`, scopes `orchestration:read` + `orchestration:operate`, 30 days, label "Better T3 Notch"). The token is stored in `~/Library/Application Support/BetterT3Notch/` with owner-only permissions, and re-issued if the server rejects it.
 - Streams the thread list (`orchestration.subscribeShell`) and, for the visible threads only, their activity (`orchestration.subscribeThread`) over T3's WebSocket RPC (orchestration protocol 2). A newer protocol shows "Needs an update".
 - Live `+/−` counts mid-run read only the patch of each file edit from T3's local database, read-only, because the server doesn't send it. The exact numbers arrive with the run's checkpoint either way.
+- **Your other machines** show up too, with the machine's name next to the project, and nothing to install on them:
+  - It follows the machines this Mac's T3 Code is linked to (`t3 environment list`, checked every 5 minutes) and connects to each one at the address T3 uses, usually its T3 Connect tunnel.
+  - For a token, it runs that machine's own T3 CLI over SSH, once (`t3 auth session issue`, read + operate, 1 year, label "Better T3 Notch (this Mac's name)"). It finds the machine on your tailnet with `tailscale status`, so this needs Tailscale SSH (or any SSH that logs in without a prompt).
+  - Tokens live in `~/Library/Application Support/BetterT3Notch/remote/`, owner-only. A revoked or expired one is minted again by itself. Revoke it on that machine under Settings → Sharing & access.
 
 ## Development
 
