@@ -123,32 +123,36 @@ import Testing
                            "snapshot": ["state": state]]]]
     }
 
-    /// T3 settles a thread whose PR merged or closed without storing an override.
-    @Test func mergedOrClosedPRSettles() {
-        #expect(shell(pr("merged")).shelf(now: now) == .settled)
-        #expect(shell(pr("closed")).shelf(now: now) == .settled)
-        #expect(shell(pr("open")).shelf(now: now) == .inbox)
+    /// Only T3's server settles: a merged or closed PR it hasn't settled stays in the inbox
+    /// (it may have been merged before your last message, or settle-on-merge is off).
+    @Test func aMergedPRAloneDoesNotSettle() {
+        #expect(shell(pr("merged")).shelf(now: now) == .inbox)
+        #expect(shell(pr("closed")).shelf(now: now) == .inbox)
+        var settled = pr("merged"); settled["settledOverride"] = "settled"
+        #expect(shell(settled).shelf(now: now) == .settled)
     }
 
-    @Test func keepActiveAndPinsBeatAMergedPR() {
-        var active = pr("merged"); active["settledOverride"] = "active"
-        #expect(shell(active).shelf(now: now) == .inbox)
-        var pinned = pr("merged"); pinned["pinnedAt"] = "2026-11-16T09:00:00.000Z"
-        #expect(shell(pinned).shelf(now: now) == .inbox)
+    /// A settled thread is done: a request it left behind (here a link card nobody answered
+    /// before it was settled) neither lists it nor counts it.
+    @Test func aSettledThreadWithALeftoverRequestStaysSettled() {
+        var fields: [String: Any] = ["status": "completed", "settledOverride": "settled",
+                                     "settledAt": "2026-11-13T01:52:32.081Z"]
+        fields["pendingRuntimeRequest"] = ["id": "turn-item:link-request:t1:a:b", "kind": "user_input",
+                                           "createdAt": "2026-11-03T20:32:46.314Z", "blocking": true, "userOnly": true]
+        let t = shell(fields)
+        #expect(t.status == .awaitingInput) // what T3 reports for it
+        #expect(t.placement(now: now) == .settled)
+        fields["pendingRuntimeRequest"] = ["id": "r1", "kind": "command", "createdAt": "2026-11-16T11:30:00.000Z"]
+        #expect(shell(fields).placement(now: now) == .settled)
     }
 
-    @Test func runningOrBlockedWorkNeverSettles() {
-        var running = pr("merged"); running["status"] = "running"; running["activityRunStatus"] = "running"
-        #expect(shell(running).shelf(now: now) == .inbox)
-        var waiting = pr("merged"); waiting["status"] = "running"; waiting["activityRunStatus"] = "waiting"
-        #expect(shell(waiting).shelf(now: now) == .inbox)
-        var parked = pr("merged"); parked["status"] = "completed"
-        parked["pendingBackgroundTasks"] = [["kind": "subagent", "id": "n1"]]
-        #expect(shell(parked).status == .waiting)
-        #expect(shell(parked).shelf(now: now) == .inbox)
-        var asking = pr("merged"); asking["settledOverride"] = "settled"
+    @Test func inboxThreadsAreWorkingWaitingOrQuiet() {
+        #expect(shell(["status": "running", "activityRunStatus": "running"]).placement(now: now) == .working)
+        var asking: [String: Any] = [:]
         asking["pendingRuntimeRequest"] = ["id": "r1", "kind": "command", "createdAt": "2026-11-16T11:30:00.000Z"]
-        #expect(shell(asking).shelf(now: now) == .inbox)
+        #expect(shell(asking).placement(now: now) == .waiting)
+        #expect(shell([:]).placement(now: now) == .quiet)
+        #expect(shell(snoozed).placement(now: now) == .snoozed)
     }
 
     @Test func snoozedUntilItsWakeTime() {

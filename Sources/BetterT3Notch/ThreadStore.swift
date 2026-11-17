@@ -605,21 +605,21 @@ final class ThreadStore: ObservableObject {
             !$0.isChild && !$0.archived && !$0.deleted && !$0.isShownUnderParent(delegatingParent(of: $0))
         }
         // Sorted into T3's shelves. Snoozed threads stay out of sight until they wake (or raise
-        // their hand, which wakes them); settled ones only count if they need you.
+        // their hand, which wakes them); settled ones only count.
         let now = Date()
         var summary = NotchSummary()
         var waiting: [ShellThread] = [], busy: [ShellThread] = [], awake: [ShellThread] = []
         for t in candidates {
-            let shelf = t.shelf(now: now)
-            if shelf == .snoozed { summary.snoozed += 1; continue }
+            let placement = t.placement(now: now)
+            if placement == .snoozed { summary.snoozed += 1; continue }
+            // Settled threads stay followed, so a finish card whose thread settles can say so.
             awake.append(t)
-            if shelf == .settled { summary.settled += 1 }
-            if t.status.isBusy { summary.working += 1; busy.append(t); continue }
-            // Settled threads only come back for a question (approvals, input, guest messages).
-            let kind = NotchSummary.kind(of: t.status)
-            guard kind != nil, shelf == .inbox || kind == .question else { continue }
-            summary.add(t.status)
-            waiting.append(t)
+            switch placement {
+            case .settled: summary.settled += 1
+            case .working: summary.working += 1; busy.append(t)
+            case .waiting: summary.add(t.status); waiting.append(t)
+            case .snoozed, .quiet: break
+            }
         }
         // Most urgent first (questions, plans, failures, then finishes), newest first within each.
         func rank(_ s: ThreadStatus) -> Int {
@@ -711,12 +711,18 @@ final class ThreadStore: ObservableObject {
             }
         }
 
+        // A link or secret card is answered in T3 (it takes a pairing code or a secret): no
+        // request to answer here, but the row and card say what it asks.
+        var card: TurnItem?
         if t.status.needsYou, let pendingId = s.pendingRequestId {
             t.request = items.last { $0.requestId == pendingId }.flatMap(Self.pendingRequest)
+            if t.request == nil { card = items.last { $0.id == pendingId } }
         }
 
         let live = t.status.isActive
-        if t.status == .waiting, let task = s.waitingOn {
+        if let card {
+            (t.activity, t.activityIcon) = Self.describe(card)
+        } else if t.status == .waiting, let task = s.waitingOn {
             (t.activity, t.activityIcon) = (task, "hourglass")
         } else if live, let item = items.last(where: { !Self.quietTypes.contains($0.type) }) {
             (t.activity, t.activityIcon) = Self.describe(item)
@@ -981,6 +987,8 @@ final class ThreadStore: ObservableObject {
         case "subagent": (item.title.map { "Subagent: \($0)" } ?? "Running a subagent", "person.2")
         case "approval_request", "user_input_request", "secret_request":
             (item.question.flatMap(firstLine) ?? "Waiting for your answer", "questionmark.bubble")
+        case "link_request":
+            (item.question.flatMap(firstLine).map { "Link a machine: \($0)" } ?? "Wants you to link a machine", "link")
         case "assistant_message":
             // While streaming, the first line grows token by token; don't redraw for each one.
             (item.status == "running" ? "Writing…" : item.text.flatMap(firstLine), "text.bubble")
@@ -1013,8 +1021,14 @@ final class ThreadStore: ObservableObject {
     /// Sounds and pop-ups follow the *run*, not the pill: T3 hides "Completed" once you've
     /// looked at a thread, but a run you're watching finishing still deserves its click.
     private func detectTransitions(_ threads: [ShellThread]) {
-        let now = Dictionary(threads.map { ($0.id, $0.phase) }, uniquingKeysWith: { a, _ in a })
-        let prs = Dictionary(threads.compactMap { t in t.pr.map { (t.id, $0) } }, uniquingKeysWith: { a, _ in a })
+        // A settled thread asks nothing: a request it left behind pops no card and plays no
+        // sound (and an open card goes away when its thread settles). Its finish still counts,
+        // so a done card whose thread settles turns into "Settled".
+        let now = Dictionary(threads.map { ($0.id, $0.settled && $0.phase == .needsYou ? .other : $0.phase) },
+                             uniquingKeysWith: { a, _ in a })
+        // Settling ends T3's watch on a thread's PR, so its news stays quiet here too.
+        let prs = Dictionary(threads.compactMap { t in t.settled ? nil : t.pr.map { (t.id, $0) } },
+                             uniquingKeysWith: { a, _ in a })
         let firstLoad = lastPhases.isEmpty
         let fresh = freshSnapshots
         defer {
@@ -1408,8 +1422,6 @@ struct ShellThread: Sendable {
     /// T3's sidebar shelves: settled by the user or auto-settle, or snoozed until a time.
     /// "settled" or "active" (the keep-active pin), or nil to let auto-settle decide.
     var settledOverride: String?
-    /// Pinned threads never settle (they stay on top of T3's sidebar).
-    var pinned = false
     var snoozedUntil: Date?
     var snoozedAt: Date?
     var pendingKind: String?
@@ -1485,27 +1497,30 @@ struct ShellThread: Sendable {
 
     enum Shelf: Sendable { case inbox, snoozed, settled }
 
-    /// `effectiveSettled` (threadSettled.ts): blocked or running work stays out; then the user's
-    /// override; then a merged or closed PR settles it. T3 works the PR rule out on the fly and
-    /// never stores it, so an agent that merges its own PR settles the thread with no override.
-    /// (T3's "settle after N days" setting lives in the app, out of the notch's reach.)
-    var settled: Bool {
-        if pinned { return false }
-        if hasPendingApprovals || hasPendingUserInput { return false }
-        // T3 blocks a live session; "preparing", "waiting" and "queued" are the notch's names
-        // for parts of one, so they keep it out too (the safe side: it stays visible).
-        if ["preparing", "starting", "running", "waiting", "queued"].contains(runtimeStatus ?? "") { return false }
-        // Parked on awaited background work: the runtime reads idle, but the run isn't over.
-        if backgroundHoldsCompletion || blockedOnThreadWait { return false }
-        if settledOverride == "settled" { return true }
-        if settledOverride == "active" { return false }
-        return pr?.state == "merged" || pr?.state == "closed"
-    }
+    /// T3's server decides settling (by hand, on merge, after N days) and stores it; T3's sidebar
+    /// reads only this flag (`settledOverride === "settled"`, Sidebar.tsx, t3code #8600). The
+    /// server clears it when the thread gets a new message, so a settled thread is done until
+    /// then, even if a request it left behind still reads as pending.
+    var settled: Bool { settledOverride == "settled" }
 
     /// Where T3's sidebar puts it: snoozed outranks settled, everything else is the inbox.
     func shelf(now: Date) -> Shelf {
         if isSnoozed(now: now) { return .snoozed }
         return settled ? .settled : .inbox
+    }
+
+    enum Placement: Sendable { case snoozed, settled, working, waiting, quiet }
+
+    /// Where the notch puts a top-level thread: counted on a shelf, counted as working, listed as
+    /// waiting on you (a question, plan, failure or unread finish), or nowhere.
+    func placement(now: Date) -> Placement {
+        switch shelf(now: now) {
+        case .snoozed: return .snoozed
+        case .settled: return .settled
+        case .inbox:
+            if status.isBusy { return .working }
+            return NotchSummary.kind(of: status) == nil ? .quiet : .waiting
+        }
     }
 
     /// `effectiveSnoozed` (t3code client-runtime threadSettled.ts): until the wake time, unless
@@ -1755,7 +1770,6 @@ enum Incoming: Sendable {
             usageLimitResetAt: date(t["usageLimitResetAt"])
         )
         thread.settledOverride = t["settledOverride"] as? String
-        thread.pinned = t["pinnedAt"] is String
         thread.snoozedUntil = date(t["snoozedUntil"])
         thread.snoozedAt = date(t["snoozedAt"])
         thread.pendingKind = pendingKind
