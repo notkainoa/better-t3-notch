@@ -561,20 +561,27 @@ final class ThreadStore: ObservableObject {
             }
         }
         // A task delegated from another machine asks through the thread that delegated it, and
-        // on up that thread's subagent chain (T3's delegated roll-up).
-        for task in shell.values {
-            guard let parent = delegatingParent(of: task) else { continue }
+        // on up that thread's subagent chain (T3's delegated roll-up). Repeated until it settles,
+        // so a chain across several machines (Mac -> Air -> Linux) reaches the top.
+        let delegated = shell.values.filter { task in
+            guard delegatingParent(of: task) != nil else { return false }
             let runsIn = task.id.firstIndex(of: "/").map { String(task.id[..<$0]) } ?? local?.environmentId
-            guard runsIn != task.delegatedFromEnvironment else { continue }
-            let nested = childRequests[task.id]
-            guard let request = task.delegatedRequest == .pendingApproval ? .pendingApproval
-                    : nested ?? task.delegatedRequest else { continue }
-            var seen: Set<String> = []
-            var next: ShellThread? = parent
-            while let p = next, seen.insert(p.id).inserted {
-                if childRequests[p.id] != .pendingApproval { childRequests[p.id] = request }
-                next = p.isSubagent ? p.parentId.flatMap { shell[$0] } : nil
+            return runsIn != task.delegatedFromEnvironment
+        }
+        for _ in 0..<8 {
+            let before = childRequests
+            for task in delegated {
+                guard let parent = delegatingParent(of: task),
+                      let request = task.delegatedRequest == .pendingApproval ? .pendingApproval
+                        : childRequests[task.id] ?? task.delegatedRequest else { continue }
+                var seen: Set<String> = []
+                var next: ShellThread? = parent
+                while let p = next, seen.insert(p.id).inserted {
+                    if childRequests[p.id] != .pendingApproval { childRequests[p.id] = request }
+                    next = p.isSubagent ? p.parentId.flatMap { shell[$0] } : nil
+                }
             }
+            if childRequests == before { break }
         }
         // Only write where it changed: rewriting all ~400 structs per update was measurable.
         for (id, request) in childRequests where shell[id]?.childRequest != request { shell[id]?.childRequest = request }
@@ -1645,11 +1652,10 @@ enum Incoming: Sendable {
         let hasRuntime = t["latestRunId"] is String || t["activeProviderThreadId"] is String || parkAtIdle
         let runtimeStatus: String? = !hasRuntime ? nil
             : parkAtIdle ? "idle" : (t["activityRunStatus"] as? String ?? status)
-        let runtimeWorking = ["preparing", "starting", "running"].contains(runtimeStatus ?? "")
 
         let hasPendingApprovals = pending != nil && pendingKind != "user_input" && pendingKind != "auth_refresh"
+        // presentThreadShell(): any question is waiting on you, blocking the run or not.
         let hasPendingUserInput = pendingKind == "user_input"
-            && ((pending?["blocking"] as? Bool) != false || !runtimeWorking)
 
         // latestRun as presentThreadShell() builds it.
         let hasLatestRun = t["latestRunId"] is String
@@ -1666,7 +1672,9 @@ enum Incoming: Sendable {
         let subagentRequest: ThreadStatus? = {
             guard let kind = pendingKind, kind != "auth_refresh", isSubagent,
                   t["creationSource"] as? String != "provider", childLive else { return nil }
-            return kind == "user_input" ? .awaitingInput : .pendingApproval
+            // The coordinator answers its subagents' questions; only user-only ones go up.
+            guard kind == "user_input" else { return .pendingApproval }
+            return pending?["userOnly"] as? Bool == true ? .awaitingInput : nil
         }()
         // What a live delegated task asks the thread that delegated it (T3's delegated roll-up):
         // approvals, and questions only the user can answer (the coordinator answers the rest).

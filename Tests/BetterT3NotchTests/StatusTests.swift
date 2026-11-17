@@ -119,11 +119,12 @@ import Testing
         #expect(t.status == .awaitingInput)
     }
 
-    @Test func nonBlockingQuestionWhileWorkingStaysWorking() {
+    @Test func nonBlockingQuestionWhileWorkingIsAwaitingInput() {
+        // T3 (presentThreadShell): any question waits on you and leaves the Working shelf.
         let t = shell(["status": "running", "activityRunStatus": "running",
                        "pendingRuntimeRequest": ["id": "r1", "kind": "user_input", "blocking": false,
                                                  "createdAt": "2026-10-27T20:00:00.000Z"]])
-        #expect(t.status == .working)
+        #expect(t.status == .awaitingInput)
     }
 
     @Test func nonBlockingQuestionAfterRunEndsIsAwaitingInput() {
@@ -185,12 +186,15 @@ import Testing
         #expect(t.status == .working)
     }
 
-    @Test func liveAppOwnedSubagentForwardsItsQuestion() {
-        let t = shell(["status": "running", "activityRunStatus": "running", "creationSource": "web",
-                       "lineage": ["parentThreadId": "parent", "relationshipToParent": "subagent"],
-                       "pendingRuntimeRequest": ["id": "r1", "kind": "user_input", "createdAt": "2026-10-27T20:00:00.000Z"]])
-        #expect(t.subagentRequest == .awaitingInput)
-        #expect(t.parentId == "parent")
+    @Test func liveAppOwnedSubagentForwardsApprovalsAndUserOnlyQuestions() {
+        let base: [String: Any] = ["status": "running", "activityRunStatus": "running", "creationSource": "web",
+                                   "lineage": ["parentThreadId": "parent", "relationshipToParent": "subagent"]]
+        func with(_ request: [String: Any]) -> ShellThread { shell(base.merging(["pendingRuntimeRequest": request]) { $1 }) }
+        #expect(with(["id": "r1", "kind": "command"]).subagentRequest == .pendingApproval)
+        #expect(with(["id": "r1", "kind": "user_input", "userOnly": true]).subagentRequest == .awaitingInput)
+        // T3's flag(): the coordinator answers its subagents' questions, so they don't go up.
+        #expect(with(["id": "r1", "kind": "user_input"]).subagentRequest == nil)
+        #expect(with(["id": "r1", "kind": "command"]).parentId == "parent")
     }
 
     @Test func forksAreTopLevelLikeInT3sSidebar() {

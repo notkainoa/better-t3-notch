@@ -134,6 +134,9 @@ final class Connection {
         task.resume()
 
         shellRequestId = send(tag: "orchestration.subscribeShell", payload: [:])
+        // Ping now, not in 5 s: the first pong tells the store this machine is answering, so a
+        // reconnect waiting on a big snapshot keeps its threads instead of flickering them away.
+        sendRaw(["_tag": "Ping"])
         delegate?.connectionDidOpen(self)
         receive(task, gen: gen)
 
