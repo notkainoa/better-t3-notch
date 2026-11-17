@@ -196,6 +196,8 @@ final class ThreadStore: ObservableObject {
     private var eventReadAway = false
     /// A finish while T3 Code is in front waits a beat for the receipt: you may be watching it.
     private var heldFinish: Task<Void, Never>?
+    /// The held finish's thread, followed while it waits (an unvisited finish is no row).
+    private var heldFinishId: String?
 
     // Per-thread detail (only for visible threads)
     private var details: [String: [String: TurnItem]] = [:]
@@ -251,7 +253,7 @@ final class ThreadStore: ObservableObject {
 
     /// Put away the pop-up too: you're about to see the thread in T3 itself.
     private func closeForT3() {
-        heldFinish?.cancel()
+        cancelHeldFinish()
         dismissEvent()
         openedT3.send()
     }
@@ -581,9 +583,11 @@ final class ThreadStore: ObservableObject {
         let listed = Array(inbox.prefix(Self.inboxCount))
         var visible = listed + working.prefix(Self.busyCount)
         // A pop-up's thread stays followed until it goes away, even if it's no row: a finish you
-        // already saw in T3 resolves to idle, but still gets its few seconds.
-        if let id = eventId, !visible.contains(where: { $0.id == id }), let t = awake.first(where: { $0.id == id }) {
-            visible.append(t)
+        // already saw in T3 (or never opened) resolves to idle, but still gets its few seconds.
+        // Same for a finish that's waiting for T3's receipt, so it has a row when it shows.
+        for id in [eventId, heldFinishId].compactMap({ $0 })
+        where !visible.contains(where: { $0.id == id }) {
+            if let t = awake.first(where: { $0.id == id }) { visible.append(t) }
         }
 
         syncDetailSubscriptions(Set(visible.map(\.id)))
@@ -954,12 +958,20 @@ final class ThreadStore: ObservableObject {
     /// this beat (it sends one at once for an unseen finish), so the card doesn't flash open.
     private func holdFinish(_ id: String, _ kind: EventKind, readAfter: Date?) {
         heldFinish?.cancel()
+        heldFinishId = id
         heldFinish = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(700))
-            guard let self, !Task.isCancelled, let t = self.shell[id] else { return }
+            guard let self, !Task.isCancelled else { return }
+            self.heldFinishId = nil
+            guard let t = self.shell[id] else { return }
             if let after = readAfter, t.isRead(after: after), Self.t3InFront { return }
             self.show(id, kind, for: 7, readAfter: readAfter)
         }
+    }
+
+    private func cancelHeldFinish() {
+        heldFinish?.cancel()
+        heldFinishId = nil
     }
 
     /// Click once when a usage-limited thread's limit resets (checked by the store's timer).
@@ -976,7 +988,7 @@ final class ThreadStore: ObservableObject {
     private func show(_ id: String, _ kind: EventKind, for seconds: Double?, readAfter: Date?) {
         eventKind = kind
         eventClearTask?.cancel()
-        heldFinish?.cancel()
+        cancelHeldFinish()
         eventId = id
         eventReadAfter = readAfter
         eventReadAway = false
