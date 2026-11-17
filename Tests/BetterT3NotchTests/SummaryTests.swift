@@ -42,6 +42,23 @@ import Testing
         #expect(all.waiting == [.question, .plan, .failed, .done])
     }
 
+    /// Work keeps its own side while something waits: "6 working" left, "2 need you" right.
+    @Test func workingStaysBesideWhatWaits() {
+        let s = summary(Array(repeating: .working, count: 6) + [.completed, .awaitingInput])
+        #expect(s.text == "2 need you")
+        #expect(s.workingAside == "6 working")
+        #expect(s.waiting == [.question, .done])
+        let one = summary([.planReady, .waiting])
+        #expect(one.text == "1 plan ready")
+        #expect(one.workingAside == "1 working")
+    }
+
+    @Test func noAsideWithoutBothSides() {
+        #expect(summary([.working, .working]).workingAside == nil) // the words already say it
+        #expect(summary([.completed, .awaitingInput]).workingAside == nil)
+        #expect(summary([.idle]).workingAside == nil)
+    }
+
     // MARK: Shelves
 
     private func shell(_ fields: [String: Any]) -> ShellThread {

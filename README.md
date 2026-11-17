@@ -6,7 +6,7 @@ A Dynamic Island–style notch for [T3 Code](https://github.com/t3tools/t3code) 
 
 **Website:** [better-t3-notch.pages.dev](https://better-t3-notch.pages.dev)
 
-Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wins over work in progress:
+Collapsed, it leaves nothing out. Usually the icons sit on the left and the words on the right, beside the camera:
 
 | What's going on | Icons | It says |
 |---|---|---|
@@ -14,6 +14,8 @@ Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wi
 | More than one kind waiting | every kind's icon | 4 need you |
 | Nothing waiting, threads working | a spinner | 5 working |
 | Nothing at all | | (the plain notch) |
+
+When threads are working **and** something waits on you, it shows both: the spinner and "6 working" keep the left, and what's waiting moves right with its icons ("`?` `✓` 2 need you").
 
 "Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.
 
@@ -64,7 +66,7 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 
 ## Features
 
-- **One-line status:** what's waiting on you as icons, and one line of words beside the camera (see above). The list holds only what's waiting; working, snoozed and settled are counted underneath, like T3's sidebar shelves.
+- **One-line status:** what's waiting on you as icons, and one line of words beside the camera; with work going on too, how many are working on the left (see above). The list holds only what's waiting; working, snoozed and settled are counted underneath, like T3's sidebar shelves.
 - **Pixel logos:** each provider's logo as pixel art in its own colors (Claude, Codex, Cursor, Grok, Meta, opencode, Pi). While a thread works, a lit head sweeps around the logo (opencode's "Soft Radar" loader); while it waits on background work, a soft band drifts down and up it.
 - **Motion:** a finished run springs open with a checkmark drawing itself and a green flash along the edge; "needs you" gives a small wiggle. Counts roll to their new value.
 - **T3's own statuses:** Working, Connecting, Waiting, Pending Approval, Awaiting Input, Failed, Plan Ready, Completed. The logic is ported from T3's sidebar and covered by tests.
@@ -111,6 +113,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 | Variable | Effect |
 |---|---|
 | `T3NOTCH_DEMO=approval\|question\|finished\|list\|working\|done\|failed\|plan\|asked-done` | fake threads for layouts and screenshots (no connection to T3 Code) |
+| `T3NOTCH_DEMO=counts:w6,d1,q1` | any mix for the collapsed notch: `w` working, `q` question, `a` approval, `p` plan, `f` failed, `d` done |
 | `T3NOTCH_ALLOW_CAPTURE=1` | let screenshots include the notch for this launch |
 | `T3NOTCH_FORCE_EXPANDED=1` | keep the list open |
 | `T3NOTCH_RUNTIME_FILE=path` | read the server address from another file |

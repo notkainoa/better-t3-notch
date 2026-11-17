@@ -2,9 +2,10 @@ import Foundation
 
 /// What the collapsed notch says: one short line that leaves nothing out.
 ///
-/// Anything waiting on you wins over work in progress. One kind waiting gets its own words
+/// Anything waiting on you takes the main words. One kind waiting gets its own words
 /// ("1 failed", "2 plans ready"); two or more kinds collapse into "N need you",
-/// with every kind's icon beside it. Only when nothing waits does it count working threads.
+/// with every kind's icon beside it. Working threads are counted on their own when nothing
+/// waits, or beside it ("6 working" on the left, "2 need you" on the right) when both happen.
 struct NotchSummary: Equatable, Sendable {
     /// Kinds of "waiting on you", in the order their icons are drawn.
     enum Kind: CaseIterable, Sendable { case question, plan, failed, done }
@@ -48,6 +49,9 @@ struct NotchSummary: Equatable, Sendable {
     var attention: Int { questions + plans + failed + done }
     /// Nothing to say: the notch stays plain.
     var isQuiet: Bool { attention == 0 && working == 0 }
+
+    /// "6 working", shown on its own side (with the spinner) while something also waits on you.
+    var workingAside: String? { attention > 0 && working > 0 ? "\(working) working" : nil }
 
     /// Short, so the wings beside the camera stay narrow: "1 working", "2 need you".
     var text: String? {

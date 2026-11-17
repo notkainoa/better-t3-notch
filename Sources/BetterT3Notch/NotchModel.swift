@@ -129,13 +129,13 @@ final class NotchModel: ObservableObject {
         case .idle:
             return notchSize
         case .activity:
-            // One line, flush with the menu bar: icons on the left, words on the right. Beside a
-            // camera notch each side gets its own wing, both as wide as the wider of the two.
-            let (icons, text) = StatusPill.widths(store.summary)
+            // One line, flush with the menu bar: icons (or the work) on the left, words on the
+            // right. Beside a camera notch each side gets its own wing, both as wide as the wider.
+            let (left, right) = StatusPill.widths(store.summary)
             let inset = sideInset(for: .activity)
             let width = hardwareNotch
-                ? notchSize.width + (max(icons, text) + inset + Self.cameraGap) * 2
-                : max(notchSize.width, inset * 2 + icons + 10 + text)
+                ? notchSize.width + (max(left, right) + inset + Self.cameraGap) * 2
+                : max(notchSize.width, inset * 2 + left + (store.summary.workingAside == nil ? 10 : 18) + right)
             return .init(width: width, height: notchSize.height)
         case .peek:
             guard let event = store.event else { return notchSize }
@@ -200,7 +200,7 @@ final class NotchModel: ObservableObject {
     /// equal (tool counts, idle rows, timestamps) skip the redraw entirely.
     var renderKey: [AnyHashable] {
         let key: [AnyHashable] = [mode, store.connected, store.incompatible, store.eventId, store.summary.text,
-                                  store.summary.waiting]
+                                  store.summary.waiting, store.summary.workingAside]
         guard mode == .activity || mode == .idle else { return key + [UUID()] } // always redraw
         return key
     }
