@@ -77,13 +77,15 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 - **Private by default:** invisible to screen sharing, recordings and screenshots (toggle in Settings → General).
 - **Light on resources:** AppKit + Core Animation, no SwiftUI. Under 1% CPU while agents run, and no memory growth (see [Performance](#performance)).
 
-## Requirements
+## Install
 
-- macOS 14 or later (built and tested on macOS 26)
-- [T3 Code](https://github.com/t3tools/t3code) desktop app, running
-- Xcode command-line tools (Swift 5.9+)
+[Download the latest release](https://github.com/notkainoa/better-t3-notch/releases/latest/download/BetterT3Notch.dmg), open it, and drag Better T3 Notch into Applications. It's signed and notarized by Apple, and it updates itself (Settings → General → Updates).
+
+You need macOS 14 or later (built and tested on macOS 26), and the [T3 Code](https://github.com/t3tools/t3code) desktop app running.
 
 ## Build and run
+
+Building it yourself needs the Xcode command-line tools (Swift 5.9+).
 
 ```sh
 ./build.sh          # builds BetterT3Notch.app (signs with your "Apple Development" identity if present, else ad-hoc)
@@ -93,7 +95,7 @@ swift test          # status, wire-format and diff-count tests
 
 Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, ⌘,) is a regular window with three tabs:
 
-- **General:** which display(s) to show it on, Open on hover, screen-sharing visibility, Launch at Login.
+- **General:** which display(s) to show it on, Open on hover, screen-sharing visibility, Launch at Login, and updates (release builds only).
 - **Notifications:** turn each pop-up off on its own (a run finishing, a run failing, an agent needing you), and each sound (finished, failed, needs you, pull request news, usage limit resets) or all of them. A turned-off pop-up still counts in the notch and shows in the list.
 - **Appearance:** theme, accent glow and showing the model (both off by default).
 
@@ -117,6 +119,28 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 - `scripts/extract-logos.py /path/to/t3code` refreshes the provider logos from T3 Code's sources.
 - `scripts/make-icon.swift` regenerates the app icon ("Midnight") and `docs/icon.png`.
 - `site/` is the website. Cloudflare Pages deploys it: pushes to `main` update production, and PRs that touch `site/` get a preview link.
+
+## Releasing
+
+Releases are automatic. Write commit titles as conventional commits (`feat:`, `fix:`, `perf:`). Every push to `main` keeps a **release PR** up to date, with the next version and a `CHANGELOG.md` entry made from those titles. Merging it:
+
+1. tags `vX.Y.Z` and opens a draft GitHub release with the changelog,
+2. builds a universal app on a macOS runner, signs it with Developer ID, puts it in a DMG, notarizes and staples it (`scripts/release.sh`),
+3. attaches `BetterT3Notch.dmg` and the Sparkle `appcast.xml`, then publishes the release.
+
+Before 1.0, `feat:` bumps the minor version and `fix:` the patch. To rebuild an existing tag, run the **Release** workflow by hand with that tag.
+
+Stable links for the website: `https://github.com/notkainoa/better-t3-notch/releases/latest/download/BetterT3Notch.dmg` always downloads the newest version, and `https://api.github.com/repos/notkainoa/better-t3-notch/releases/latest` gives its version, date and notes as JSON.
+
+Repo secrets the workflow uses:
+
+| Secret | What it is |
+|---|---|
+| `DEVELOPER_ID_P12`, `DEVELOPER_ID_P12_PASSWORD` | the Developer ID Application certificate and its private key, exported as .p12, base64 |
+| `ASC_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID` | an App Store Connect API key (Developer role) for `notarytool`, the .p8 as base64 |
+| `SPARKLE_ED_PRIVATE_KEY` | the EdDSA key that signs updates; its public half is in `build.sh`. Losing it means installed copies can't update, so keep the keychain backup |
+
+`SKIP_NOTARIZE=1 scripts/release.sh` builds the signed DMG and appcast locally without notarizing.
 
 Better T3 Notch started as a fork of [t3code-notch](https://github.com/JosueRhea/t3code-notch) by Josue A.
 
