@@ -48,6 +48,32 @@ struct NotchTheme: Equatable {
         return id == classic.id ? classic : t3.first { $0.id == id }
     }
 
+    /// T3's palette `id`: a built-in one, else one of the user's own themes (T3's theme editor
+    /// saves them as JSON under `t3code:themes:v1`), else classic.
+    static func resolve(_ id: String, customThemes: String?) -> NotchTheme {
+        named(id) ?? custom(id, in: customThemes) ?? classic
+    }
+
+    /// A custom theme's dark colors (the notch is always dark): its own colors when it's a dark
+    /// theme, else its dark variant over them. Same roles as the built-ins: accent,
+    /// accentForeground, surfaceRaised, canvas.
+    static func custom(_ id: String, in json: String?) -> NotchTheme? {
+        guard let data = json?.data(using: .utf8),
+              let themes = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let theme = themes.first(where: { $0["id"] as? String == id }) else { return nil }
+        let base = theme["colors"] as? [String: String] ?? [:]
+        let variant = (theme["variants"] as? [String: Any])?["dark"] as? [String: String]
+        let dark = theme["appearance"] as? String == "dark" ? base : base.merging(variant ?? [:]) { _, v in v }
+        guard let accent = dark["accent"].flatMap(CSSColor.parse) else { return nil }
+        return NotchTheme(id: id, label: theme["label"] as? String ?? id,
+                          accent: accent.color,
+                          onAccent: dark["accentForeground"].flatMap(CSSColor.parse)?.color ?? .white,
+                          // Text-colored on dark: lift a deep accent to a readable lightness.
+                          working: accent.readableOnDark,
+                          surface: dark["surfaceRaised"].flatMap(CSSColor.parse)?.color,
+                          background: dark["canvas"].flatMap(CSSColor.parse)?.color)
+    }
+
     /// A background as bright on black as white at `alpha` (what the classic look uses),
     /// but in the theme's hue.
     func fill(_ alpha: CGFloat) -> NSColor {
@@ -59,6 +85,64 @@ struct NotchTheme: Equatable {
     /// Shadow under the open notch: black for classic, a soft accent glow otherwise.
     var glowColor: CGColor { surface == nil ? NSColor.black.cgColor : accent.cgColor }
     var glowOpacity: Float { surface == nil ? 0.45 : 0.32 }
+}
+
+/// The CSS colors T3's theme editor writes: `oklch(L C H)` (what it saves) and `#rrggbb`.
+struct CSSColor: Equatable {
+    /// OKLCH: lightness 0...1, chroma, hue in degrees.
+    let l, c, h: Double
+
+    static func parse(_ s: String) -> CSSColor? {
+        let t = s.trimmingCharacters(in: .whitespaces).lowercased()
+        if t.hasPrefix("oklch("), t.hasSuffix(")") {
+            let parts = t.dropFirst(6).dropLast().split(separator: "/")[0]
+                .split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init)
+            guard parts.count >= 3, let c = Double(parts[1]) else { return nil }
+            let l = parts[0].hasSuffix("%") ? Double(parts[0].dropLast()).map { $0 / 100 } : Double(parts[0])
+            let h = Double(parts[2].replacingOccurrences(of: "deg", with: "")) ?? 0 // "none" hue
+            return l.map { CSSColor(l: $0, c: c, h: h) }
+        }
+        if t.hasPrefix("#"), t.count == 7, let v = UInt32(t.dropFirst(), radix: 16) {
+            return fromSRGB(Double(v >> 16 & 0xFF) / 255, Double(v >> 8 & 0xFF) / 255, Double(v & 0xFF) / 255)
+        }
+        return nil
+    }
+
+    var color: NSColor {
+        let (r, g, b) = srgb
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+    }
+
+    /// At least as light as T3's own light accents (L 0.72), so it reads as text on the dark notch.
+    var readableOnDark: NSColor { CSSColor(l: max(l, 0.72), c: c, h: h).color }
+
+    /// OKLCH -> OKLab -> linear sRGB -> sRGB (Björn Ottosson's matrices), clamped to the gamut.
+    var srgb: (CGFloat, CGFloat, CGFloat) {
+        let a = c * cos(h * .pi / 180), b = c * sin(h * .pi / 180)
+        let l3 = pow(l + 0.3963377774 * a + 0.2158037573 * b, 3)
+        let m3 = pow(l - 0.1055613458 * a - 0.0638541728 * b, 3)
+        let s3 = pow(l - 0.0894841775 * a - 1.2914855480 * b, 3)
+        let lin = [4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
+                   -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
+                   -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3]
+        let out = lin.map { x -> CGFloat in
+            let v = x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1 / 2.4) - 0.055
+            return CGFloat(min(1, max(0, v)))
+        }
+        return (out[0], out[1], out[2])
+    }
+
+    private static func fromSRGB(_ r: Double, _ g: Double, _ b: Double) -> CSSColor {
+        func linear(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        let (lr, lg, lb) = (linear(r), linear(g), linear(b))
+        let l = cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb)
+        let m = cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb)
+        let s = cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb)
+        let L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+        let A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+        let B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+        return CSSColor(l: L, c: (A * A + B * B).squareRoot(), h: atan2(B, A) * 180 / .pi)
+    }
 }
 
 /// Which theme the notch wears: follow T3 Code, or a fixed pick from the menu.
@@ -99,7 +183,7 @@ enum Theme {
     static func start() {
         let first = T3ThemeReader.read(since: nil, systemDark: systemDark)
         lastStamp = first.stamp
-        if let id = first.id { detected = NotchTheme.named(id) ?? .classic }
+        if let id = first.id { detected = NotchTheme.resolve(id, customThemes: first.customThemes) }
         current = resolve()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             MainActor.assumeIsolated { poll() }
@@ -117,12 +201,12 @@ enum Theme {
         let since = lastStamp, dark = systemDark
         queue.async {
             // id nil: storage unchanged since the last read (or unreadable): keep what we have.
-            let (id, stamp) = T3ThemeReader.read(since: since, systemDark: dark)
+            let (id, stamp, custom) = T3ThemeReader.read(since: since, systemDark: dark)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     lastStamp = stamp
                     guard let id else { return }
-                    detected = NotchTheme.named(id) ?? .classic
+                    detected = NotchTheme.resolve(id, customThemes: custom)
                     apply()
                 }
             }
@@ -156,21 +240,24 @@ enum T3ThemeReader {
     static let themeKey = "t3code:theme"
     static let halvesKey = "t3code:theme-halves:v1"
     static let appearanceKey = "t3code:theme-appearance-mode"
+    /// The user's own themes (T3's theme editor), as a JSON array.
+    static let customThemesKey = "t3code:themes:v1"
 
     /// When storage was last read, and under which macOS appearance.
     struct Stamp: Equatable { let modified: Date; let systemDark: Bool }
 
     /// T3's palette id as the T3 window shows it now ("ember"; "system" etc. for no palette),
     /// "" when T3 never stored one, nil when nothing changed since `since` or it can't be read.
-    static func read(since: Stamp?, systemDark: Bool) -> (id: String?, stamp: Stamp?) {
-        guard let (dir, modified) = storageDirectory() else { return (nil, since) }
+    static func read(since: Stamp?, systemDark: Bool) -> (id: String?, stamp: Stamp?, customThemes: String?) {
+        guard let (dir, modified) = storageDirectory() else { return (nil, since, nil) }
         let stamp = Stamp(modified: modified, systemDark: systemDark)
-        if let since, since == stamp { return (nil, since) }
-        let values = LevelDB.newest(in: dir, matching: [themeKey, halvesKey, appearanceKey].map(localStorageKeySuffix))
+        if let since, since == stamp { return (nil, since, nil) }
+        let keys = [themeKey, halvesKey, appearanceKey, customThemesKey]
+        let values = LevelDB.newest(in: dir, matching: keys.map(localStorageKeySuffix))
         func value(_ key: String) -> String? { values[localStorageKeySuffix(key)].flatMap(decodeValue) }
         let id = paletteId(theme: value(themeKey), halves: value(halvesKey), appearance: value(appearanceKey),
                            systemDark: systemDark)
-        return (id, stamp)
+        return (id, stamp, value(customThemesKey))
     }
 
     /// T3 can pin a different palette for light and dark mode ("halves"); use the one on screen.

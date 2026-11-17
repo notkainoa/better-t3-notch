@@ -6,9 +6,9 @@ Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wi
 
 | What's going on | Icons | It says |
 |---|---|---|
-| One kind waiting | `?` (question or approval), 📋 (plan), `✕` (failed) or `✓` (done) | 1 thread needs you · 2 plans ready · 1 thread failed · 3 threads done |
-| More than one kind waiting | every kind's icon | 4 threads need you |
-| Nothing waiting, threads working | a spinner | 5 threads working |
+| One kind waiting | `?` (question or approval), 📋 (plan), `✕` (failed) or `✓` (done) | 1 needs you · 2 plans ready · 1 failed · 3 done |
+| More than one kind waiting | every kind's icon | 4 need you |
+| Nothing waiting, threads working | a spinner | 5 working |
 | Nothing at all | | (the plain notch) |
 
 "Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.

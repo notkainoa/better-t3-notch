@@ -3,7 +3,7 @@ import Foundation
 /// What the collapsed notch says: one short line that leaves nothing out.
 ///
 /// Anything waiting on you wins over work in progress. One kind waiting gets its own words
-/// ("1 thread failed", "2 plans ready"); two or more kinds collapse into "N threads need you",
+/// ("1 failed", "2 plans ready"); two or more kinds collapse into "N need you",
 /// with every kind's icon beside it. Only when nothing waits does it count working threads.
 struct NotchSummary: Equatable, Sendable {
     /// Kinds of "waiting on you", in the order their icons are drawn.
@@ -49,16 +49,17 @@ struct NotchSummary: Equatable, Sendable {
     /// Nothing to say: the notch stays plain.
     var isQuiet: Bool { attention == 0 && working == 0 }
 
+    /// Short, so the wings beside the camera stay narrow: "1 working", "2 need you".
     var text: String? {
         func n(_ c: Int, _ one: String, _ many: String) -> String { "\(c) \(c == 1 ? one : many)" }
         let kinds = waiting
-        if kinds.count > 1 { return n(attention, "thread needs you", "threads need you") }
+        if kinds.count > 1 { return n(attention, "needs you", "need you") }
         switch kinds.first {
-        case .question?: return n(questions, "thread needs you", "threads need you")
+        case .question?: return n(questions, "needs you", "need you")
         case .plan?: return n(plans, "plan ready", "plans ready")
-        case .failed?: return n(failed, "thread failed", "threads failed")
-        case .done?: return n(done, "thread done", "threads done")
-        case nil: return working > 0 ? n(working, "thread working", "threads working") : nil
+        case .failed?: return "\(failed) failed"
+        case .done?: return "\(done) done"
+        case nil: return working > 0 ? "\(working) working" : nil
         }
     }
 }

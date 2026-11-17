@@ -17,28 +17,28 @@ import Testing
     }
 
     @Test func workingOnlyCountsWork() {
-        #expect(summary([.working, .connecting, .waiting, .idle]).text == "3 threads working")
-        #expect(summary([.working]).text == "1 thread working")
+        #expect(summary([.working, .connecting, .waiting, .idle]).text == "3 working")
+        #expect(summary([.working]).text == "1 working")
     }
 
     @Test func oneKindSaysWhatItIs() {
-        #expect(summary([.completed, .working, .working]).text == "1 thread done")
-        #expect(summary([.failed, .failed]).text == "2 threads failed")
+        #expect(summary([.completed, .working, .working]).text == "1 done")
+        #expect(summary([.failed, .failed]).text == "2 failed")
         #expect(summary([.planReady]).text == "1 plan ready")
         #expect(summary([.planReady, .planReady]).text == "2 plans ready")
-        #expect(summary([.pendingApproval]).text == "1 thread needs you")
+        #expect(summary([.pendingApproval]).text == "1 needs you")
         // Approvals, questions and guest messages are all "a question for you".
         let asked = summary([.awaitingInput, .pendingApproval, .guestRequest])
-        #expect(asked.text == "3 threads need you")
+        #expect(asked.text == "3 need you")
         #expect(asked.waiting == [.question])
     }
 
     @Test func mixedKindsNeedYouWithEveryIcon() {
         let s = summary([.completed, .awaitingInput, .working])
-        #expect(s.text == "2 threads need you")
+        #expect(s.text == "2 need you")
         #expect(s.waiting == [.question, .done])
         let all = summary([.completed, .failed, .planReady, .pendingApproval, .completed])
-        #expect(all.text == "5 threads need you")
+        #expect(all.text == "5 need you")
         #expect(all.waiting == [.question, .plan, .failed, .done])
     }
 

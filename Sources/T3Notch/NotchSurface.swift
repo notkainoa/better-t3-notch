@@ -138,7 +138,10 @@ final class NotchRootView: NSView {
             let animate = animated && applied != nil
             if animate { shapeFrom = shape.presentation()?.path ?? shape.path }
             let finishing = mode == .peek && applied?.mode != .peek && store.event?.status.needsYou == false
-            setShape(size: size, animated: animate, damping: finishing ? 0.6 : 0.78)
+            // Shrinking settles without overshoot: an underdamped spring dipped below the pill
+            // (showing the bare camera notch) before springing back out.
+            let shrinking = applied.map { size.width < $0.size.width || size.height < $0.size.height } ?? false
+            setShape(size: size, animated: animate, damping: finishing ? 0.6 : shrinking ? 1 : 0.78)
             applied = (mode, size)
         }
         syncContent(mode: mode, size: size, shapeFrom: shapeFrom)
@@ -391,7 +394,7 @@ final class NotchRootView: NSView {
 // MARK: - Status pill
 
 /// The collapsed notch: what's waiting on you as icons on the left, one line of words on the
-/// right ("2 threads need you"), or a spinner and "5 threads working" when nothing waits.
+/// right ("2 need you"), or a spinner and "5 working" when nothing waits.
 /// Beside a camera notch the icons and the words sit in the wings on either side of it.
 @MainActor
 final class StatusPill: NSView {
