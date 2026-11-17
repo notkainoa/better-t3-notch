@@ -4,9 +4,9 @@
 #   ./scripts/screenshots.sh            -> docs/screenshots/*.png
 set -e
 cd "$(dirname "$0")/.."
-APP=T3Notch.app
+APP=BetterT3Notch.app
 OUT=docs/screenshots
-DOMAIN=dev.custom-dock.t3notch
+DOMAIN=me.kainoa.better-t3-notch
 mkdir -p $OUT
 
 # Built-in display geometry in screencapture's (top-left origin, global) coordinates.
@@ -22,7 +22,7 @@ defaults write $DOMAIN displayChoice builtin
 
 shot() { # name, height, extra env...
   local name=$1 height=$2; shift 2
-  pkill -x T3Notch 2>/dev/null || true; sleep 1.5
+  pkill -x BetterT3Notch 2>/dev/null || true; sleep 1.5
   open --env T3NOTCH_ALLOW_CAPTURE=1 "$@" $APP
   sleep 6
   local width=820
@@ -36,7 +36,7 @@ shot approval 230 --env T3NOTCH_DEMO=approval
 shot question 230 --env T3NOTCH_DEMO=question
 shot finished 160 --env T3NOTCH_DEMO=finished
 
-pkill -x T3Notch 2>/dev/null || true; sleep 1
+pkill -x BetterT3Notch 2>/dev/null || true; sleep 1
 if [[ -n "$previous" ]]; then defaults write $DOMAIN displayChoice "$previous"; else defaults delete $DOMAIN displayChoice; fi
 open $APP
 echo "done: $OUT"

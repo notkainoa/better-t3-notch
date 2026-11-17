@@ -4,7 +4,7 @@ import Foundation
 import os
 import SQLite3
 
-private let log = Logger(subsystem: "dev.custom-dock.t3notch", category: "threads")
+private let log = Logger(subsystem: "me.kainoa.better-t3-notch", category: "threads")
 
 /// Mirrors T3 Code's sidebar status pill (`resolveThreadStatusPill` in apps/web
 /// Sidebar.logic.ts), same names, same priority order.
@@ -316,7 +316,7 @@ final class ThreadStore: ObservableObject {
     private func dispatch(_ thread: T3Thread, _ command: [String: Any]) {
         guard socket != nil else { failed[thread.id] = "Not connected to T3 Code"; return }
         var command = command
-        command["commandId"] = "t3notch:\(UUID().uuidString.lowercased())"
+        command["commandId"] = "better-t3-notch:\(UUID().uuidString.lowercased())"
         failed[thread.id] = nil
         sending.insert(thread.id)
         let requestId = send(tag: "orchestration.dispatchCommand", payload: command)
@@ -336,7 +336,7 @@ final class ThreadStore: ObservableObject {
                     environmentId = env.id ?? environmentId
                     commandOutputStreaming = env.commandOutputStreaming
                     if let v = env.protocolVersion, v != Self.protocolVersion {
-                        incompatible = "T3 Code \(env.serverVersion ?? "") speaks protocol \(v); T3 Notch speaks \(Self.protocolVersion)"
+                        incompatible = "T3 Code \(env.serverVersion ?? "") speaks protocol \(v); Better T3 Notch speaks \(Self.protocolVersion)"
                         throw ConnectError.incompatible
                     }
                     incompatible = nil
@@ -761,7 +761,7 @@ final class ThreadStore: ObservableObject {
                               .init(label: "Skip it", value: "c", description: nil)],
                     multiSelect: false)]))
                 : .init(id: "demo", kind: .approval(
-                    prompt: "rm -rf .build T3Notch.app && swift build -c release",
+                    prompt: "rm -rf .build BetterT3Notch.app && swift build -c release",
                     reason: "This command deletes files and could not be checked",
                     options: [.init(decision: "decline", label: "Decline", warning: nil),
                               .init(decision: "accept", label: "Approve", warning: nil)]))
@@ -791,8 +791,8 @@ final class ThreadStore: ObservableObject {
         case "asked-done": // a question whose card was put away, and a finished run
             var q = make("q1", "Clean up old build artifacts", .pendingApproval, updated: -40)
             q.provider = "claudeAgent"
-            q.activity = "rm -rf .build T3Notch.app"; q.activityIcon = "questionmark.bubble"
-            q.request = .init(id: "demo", kind: .approval(prompt: "rm -rf .build T3Notch.app", reason: nil,
+            q.activity = "rm -rf .build BetterT3Notch.app"; q.activityIcon = "questionmark.bubble"
+            q.request = .init(id: "demo", kind: .approval(prompt: "rm -rf .build BetterT3Notch.app", reason: nil,
                                                           options: [.init(decision: "decline", label: "Decline", warning: nil),
                                                                     .init(decision: "accept", label: "Approve", warning: nil)]))
             var d = make("d1", "Release notes for 2.4", .completed, updated: -300)
@@ -1094,7 +1094,7 @@ final class TokenStore {
 
     private var file: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("T3Notch", isDirectory: true)
+            .appendingPathComponent("BetterT3Notch", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         return dir.appendingPathComponent("token-operate")
@@ -1130,7 +1130,7 @@ final class TokenStore {
             p.executableURL = URL(fileURLWithPath: cli)
             p.arguments = ["auth", "session", "issue"]
                 + TokenStore.scopes.flatMap { ["--scope", $0] }
-                + ["--ttl", "30d", "--label", "T3 Notch", "--token-only"]
+                + ["--ttl", "30d", "--label", "Better T3 Notch", "--token-only"]
             let out = Pipe()
             p.standardOutput = out
             p.standardError = FileHandle.nullDevice

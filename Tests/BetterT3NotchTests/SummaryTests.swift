@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import T3Notch
+@testable import BetterT3Notch
 
 /// The collapsed notch's one line, and which of T3's sidebar shelves a thread sits on.
 @Suite struct SummaryTests {

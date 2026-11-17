@@ -175,11 +175,11 @@ enum Theme {
     nonisolated(unsafe) private(set) static var current = NotchTheme.classic
     /// T3 Code's palette, as last read from its storage.
     private(set) static var detected = NotchTheme.classic
-    static let didChange = Notification.Name("T3NotchThemeDidChange")
+    static let didChange = Notification.Name("BetterT3NotchThemeDidChange")
 
     private static var timer: Timer?
     private static var lastStamp: T3ThemeReader.Stamp?
-    private static let queue = DispatchQueue(label: "t3notch.theme", qos: .utility)
+    private static let queue = DispatchQueue(label: "better-t3-notch.theme", qos: .utility)
 
     /// Reads T3's theme once (so the first panels already match), then watches for changes.
     static func start() {

@@ -1,4 +1,4 @@
-# t3code-notch
+# Better T3 Notch
 
 A Dynamic Island–style notch for [T3 Code](https://github.com/t3tools/t3code) on macOS. See what your agents are doing, answer them, and stop them, without leaving the app you're in.
 
@@ -82,8 +82,8 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 ## Build and run
 
 ```sh
-./build.sh          # builds T3Notch.app (signs with your "Apple Development" identity if present, else ad-hoc)
-open T3Notch.app
+./build.sh          # builds BetterT3Notch.app (signs with your "Apple Development" identity if present, else ad-hoc)
+open BetterT3Notch.app
 swift test          # status, wire-format and diff-count tests
 ```
 
@@ -96,7 +96,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 ## How it connects
 
 - Finds the local T3 server through `~/.t3/userdata/server-runtime.json`, re-read on every reconnect, so a port change or restart is picked up automatically.
-- On first launch it creates its own bearer token with T3's CLI (`~/.t3/bin/t3 auth session issue`, scopes `orchestration:read` + `orchestration:operate`, 30 days, label "T3 Notch"). The token is stored in `~/Library/Application Support/T3Notch/` with owner-only permissions, and re-issued if the server rejects it.
+- On first launch it creates its own bearer token with T3's CLI (`~/.t3/bin/t3 auth session issue`, scopes `orchestration:read` + `orchestration:operate`, 30 days, label "Better T3 Notch"). The token is stored in `~/Library/Application Support/BetterT3Notch/` with owner-only permissions, and re-issued if the server rejects it.
 - Streams the thread list (`orchestration.subscribeShell`) and, for the visible threads only, their activity (`orchestration.subscribeThread`) over T3's WebSocket RPC (orchestration protocol 2). A newer protocol shows "Needs an update".
 - Live `+/−` counts mid-run read only the patch of each file edit from T3's local database, read-only, because the server doesn't send it. The exact numbers arrive with the run's checkpoint either way.
 
@@ -112,5 +112,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 - `scripts/screenshots.sh` regenerates `docs/screenshots/` (run it from an empty desktop).
 - `scripts/extract-logos.py /path/to/t3code` refreshes the provider logos from T3 Code's sources.
 - `scripts/make-icon.swift` regenerates the app icon.
+
+Better T3 Notch started as a fork of [t3code-notch](https://github.com/JosueRhea/t3code-notch) by Josue A.
 
 The working animation is opencode's "Soft Radar" spinner ([opencode](https://github.com/sst/opencode), MIT, © opencode; license in `LICENSES/opencode.txt`), run over pixel-art versions of the provider logos. The finish sound is the "classic" sound from [Hex](https://github.com/anomalyco/hex) (MIT, © Christopher Langton; license in `Resources/Sounds/LICENSE-hex`). Provider logos are the ones T3 Code ships and belong to their respective owners. This project isn't affiliated with T3 Tools.
