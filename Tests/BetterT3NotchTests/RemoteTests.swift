@@ -24,6 +24,8 @@ import Testing
         #expect(!RemoteAccess.isPrivate(URL(string: "http://192.168.1.20:3773")!))
         #expect(!RemoteAccess.isPrivate(URL(string: "http://100.200.1.1:3773")!))
         #expect(!RemoteAccess.isPrivate(URL(string: "ftp://100.100.1.2")!))
+        #expect(!RemoteAccess.isPrivate(URL(string: "http://100.100.1.1.example.com:3773")!))
+        #expect(!RemoteAccess.isPrivate(URL(string: "http://100.100.1:3773")!))
     }
 
     @Test func labelsBecomeTailscaleNames() {

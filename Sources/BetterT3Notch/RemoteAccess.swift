@@ -91,8 +91,10 @@ enum RemoteAccess {
         guard url.scheme == "http", let host = url.host?.lowercased() else { return false }
         if host == "localhost" || host == "127.0.0.1" || host == "::1" || host.hasSuffix(".ts.net") { return true }
         // Tailscale's addresses: 100.64.0.0/10.
-        let parts = host.split(separator: ".").compactMap { Int($0) }
-        return parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
+        // Every label a number: "100.100.1.1.example.com" is a public name, not an address.
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let parts = labels.compactMap { Int($0) }
+        return labels.count == 4 && parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
     }
 
     // MARK: Finding the machine on the tailnet

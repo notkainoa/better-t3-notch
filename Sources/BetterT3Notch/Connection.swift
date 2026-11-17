@@ -38,8 +38,10 @@ final class Connection {
     private(set) var commandOutputStreaming = false
     var isOpen: Bool { socket != nil }
     /// The socket is up and the server is answering, even if the snapshot is still on its way.
+    /// Until the snapshot lands, later pongs queue behind it, so having answered once counts
+    /// (the 90 s snapshot deadline bounds that).
     var answering: Bool {
-        socket != nil && heardOnSocket && Date().timeIntervalSince(lastHeard) < pingEvery * 3
+        socket != nil && heardOnSocket && (!connected || Date().timeIntervalSince(lastHeard) < pingEvery * 3)
     }
 
     /// Request ids of this socket's streams. Thread ids here are the server's own.

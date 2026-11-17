@@ -552,16 +552,22 @@ final class ThreadStore: ObservableObject {
         // up through subagents and side chats. A side chat asks its parent directly
         // (pendingSubagentRequestsByThread).
         var childRequests: [String: ThreadStatus] = [:]
+        // Threads whose only request is a side chat's question: T3 shows it there, but a plain
+        // question doesn't go on to the machine a task was delegated from.
+        var sideChatQuestionOnly: Set<String> = []
         for child in shell.values {
-            if let request = child.sideChatRequest, let parent = child.parentId {
-                if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
-                continue
-            }
+            guard let request = child.sideChatRequest, let parent = child.parentId else { continue }
+            if childRequests[parent] == nil, request == .awaitingInput { sideChatQuestionOnly.insert(parent) }
+            if request == .pendingApproval { sideChatQuestionOnly.remove(parent) }
+            if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
+        }
+        for child in shell.values {
             guard let request = child.subagentRequest else { continue }
             var seen: Set<String> = [child.id]
             var current: ShellThread? = child
             while let c = current, c.isSubagent || c.isSideChat, let parent = c.parentId, !seen.contains(parent) {
                 seen.insert(parent)
+                sideChatQuestionOnly.remove(parent)
                 if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
                 current = shell[parent]
             }
@@ -577,12 +583,14 @@ final class ThreadStore: ObservableObject {
         for _ in 0..<8 {
             let before = childRequests
             for task in delegated {
+                let nested = sideChatQuestionOnly.contains(task.id) ? nil : childRequests[task.id]
                 guard let parent = delegatingParent(of: task),
                       let request = task.delegatedRequest == .pendingApproval ? .pendingApproval
-                        : childRequests[task.id] ?? task.delegatedRequest else { continue }
+                        : nested ?? task.delegatedRequest else { continue }
                 var seen: Set<String> = []
                 var next: ShellThread? = parent
                 while let p = next, seen.insert(p.id).inserted {
+                    sideChatQuestionOnly.remove(p.id)
                     if childRequests[p.id] != .pendingApproval { childRequests[p.id] = request }
                     next = p.isSubagent || p.isSideChat ? p.parentId.flatMap { shell[$0] } : nil
                 }
