@@ -56,6 +56,23 @@ import Testing
         #expect(t.status == .idle)
     }
 
+    @Test func unawaitedMonitorDoesNotHoldCompletion() {
+        // A PR watch or a dev server's watchdog: T3 shows the run as finished, not Waiting.
+        let t = shell(["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
+                       "lastVisitedAt": "2026-10-27T21:00:00.000Z",
+                       "pendingBackgroundTasks": [["taskId": "pull-request-watch:1", "kind": "monitor"]]])
+        #expect(t.status == .idle)
+        #expect(!t.status.isBusy)
+    }
+
+    @Test func awaitedMonitorIsWaiting() {
+        let t = shell(["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
+                       "pendingBackgroundTasks": [["taskId": "pull-request-watch:1", "kind": "monitor",
+                                                   "awaited": true]]])
+        #expect(t.status == .waiting)
+        #expect(t.status.isBusy) // counted as working, like T3's Working shelf
+    }
+
     @Test func awaitedBackgroundCommandIsWaiting() {
         // Newer T3: work the agent marks `awaited` holds the thread as Waiting whatever its kind.
         let t = shell(["status": "completed", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
@@ -184,6 +201,24 @@ import Testing
         #expect(subagent.isChild)
         let sideChat = shell(["lineage": ["parentThreadId": "parent", "relationshipToParent": "fork", "sideChat": true]])
         #expect(sideChat.isChild)
+    }
+
+    @Test func delegatedTaskIsListedUnderItsParentLikeT3() {
+        let task = shell(["status": "running", "activityRunStatus": "running",
+                          "delegatedFrom": ["environmentId": "env-mac", "threadId": "p1", "title": "Parent"]])
+        #expect(task.delegatedFromEnvironment == "env-mac")
+        #expect(task.delegatedFromThread == "p1")
+        #expect(task.isShownUnderParent(shell(["id": "p1"])))
+        // Parent unknown (machine not followed) or archived: T3 lists the task on its own.
+        #expect(!task.isShownUnderParent(nil))
+        #expect(!task.isShownUnderParent(shell(["id": "p1", "archivedAt": "2026-10-27T20:00:00.000Z"])))
+    }
+
+    @Test func delegatedTaskThatNeedsYouStaysOnItsOwn() {
+        let task = shell(["pendingRuntimeRequest": ["id": "r1", "kind": "command"],
+                          "delegatedFrom": ["environmentId": "env-mac", "threadId": "p1", "title": "Parent"]])
+        #expect(task.status == .pendingApproval)
+        #expect(!task.isShownUnderParent(shell(["id": "p1"])))
     }
 
     @Test func providerNativeSubagentDoesNotForward() {

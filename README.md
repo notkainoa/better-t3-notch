@@ -17,7 +17,7 @@ Collapsed, it leaves nothing out. Usually the icons sit on the left and the word
 
 When threads are working **and** something waits on you, it shows both: what's waiting keeps the left with its icons ("`?` `✓` 2 need you"), and the spinner and "6 working" move to the right.
 
-"Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.
+"Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake. "Working" is what T3's Working shelf holds: threads running, and threads waiting on a subagent, another thread, or background work the agent is waiting for. A dev server or a PR watch left running doesn't count. Work delegated from a thread you can see counts under that thread, like in T3's sidebar.
 
 Click it (or press **⌘⇧Space**, which you can change in Settings) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on hover** in Settings.
 
@@ -121,6 +121,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 | `T3NOTCH_ALLOW_CAPTURE=1` | let screenshots include the notch for this launch |
 | `T3NOTCH_FORCE_EXPANDED=1` | keep the list open |
 | `T3NOTCH_RUNTIME_FILE=path` | read the server address from another file |
+| `T3NOTCH_DUMP=path` | write every thread the notch sees (all machines), its status and shelf, and the counts, as JSON |
 
 - `scripts/screenshots.sh` regenerates `docs/screenshots/` (run it from an empty desktop).
 - `scripts/extract-logos.py /path/to/t3code` refreshes the provider logos from T3 Code's sources.

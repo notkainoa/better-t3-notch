@@ -554,7 +554,9 @@ final class ThreadStore: ObservableObject {
         for (id, request) in childRequests where shell[id]?.childRequest != request { shell[id]?.childRequest = request }
         for (id, t) in shell where t.childRequest != nil && childRequests[id] == nil { shell[id]?.childRequest = nil }
 
-        let candidates = shell.values.filter { !$0.isChild && !$0.archived && !$0.deleted }
+        let candidates = shell.values.filter {
+            !$0.isChild && !$0.archived && !$0.deleted && !$0.isShownUnderParent(delegatingParent(of: $0))
+        }
         // Sorted into T3's shelves. Snoozed threads stay out of sight until they wake (or raise
         // their hand, which wakes them); settled ones only count if they need you.
         let now = Date()
@@ -619,6 +621,7 @@ final class ThreadStore: ObservableObject {
             if let id = Self.demo.eventId, threads.isEmpty, let t = rows.first(where: { $0.id == id }) { showEvent(t) }
         }
         if summary != self.summary { self.summary = summary }
+        if let path = Self.dumpPath { dump(candidates, now: now, to: path) }
         if listedIds != inboxIds { objectWillChange.send(); inboxIds = listedIds }
         if rows != threads { threads = rows }
     }
@@ -674,6 +677,45 @@ final class ThreadStore: ObservableObject {
             (t.activity, t.activityIcon) = (Self.firstLine(message), "text.bubble")
         }
         return t
+    }
+
+    /// The thread that delegated `t` to its machine, if the notch follows that thread's machine.
+    private func delegatingParent(of t: ShellThread) -> ShellThread? {
+        guard let env = t.delegatedFromEnvironment, let id = t.delegatedFromThread else { return nil }
+        if env == local?.environmentId { return shell[id] }
+        return remotes[env] == nil ? nil : shell["\(env)/\(id)"]
+    }
+
+    /// `T3NOTCH_DUMP=path`: every thread the notch knows (top level), where it put it, and the
+    /// summary, as JSON, for checking the notch against T3's own lists.
+    private static let dumpPath = ProcessInfo.processInfo.environment["T3NOTCH_DUMP"]
+    private var lastDump = Date.distantPast
+
+    private func dump(_ threads: [ShellThread], now: Date, to path: String) {
+        guard now.timeIntervalSince(lastDump) > 2 else { return }
+        lastDump = now
+        let rows: [[String: Any]] = threads.map { t in
+            let slash = t.id.firstIndex(of: "/")
+            let shelf = t.shelf(now: now)
+            return [
+                "environment": slash.map { String(t.id[..<$0]) } ?? (local?.environmentId ?? ""),
+                "id": slash.map { String(t.id[t.id.index(after: $0)...]) } ?? t.id,
+                "title": t.title,
+                "status": t.status.label.isEmpty ? "idle" : t.status.label,
+                "shelf": "\(shelf)",
+                "working": shelf != .snoozed && t.status.isBusy,
+            ]
+        }
+        let s = summary
+        let json: [String: Any] = [
+            "connected": allConnections.map { ["environment": $0.environmentId ?? "", "label": $0.label, "connected": $0.connected] },
+            "summary": ["working": s.working, "questions": s.questions, "plans": s.plans, "failed": s.failed,
+                        "done": s.done, "snoozed": s.snoozed, "settled": s.settled],
+            "threads": rows,
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
     }
 
     /// The project, and for another machine's thread, which machine ("api · MacBook Air").
@@ -1280,6 +1322,8 @@ struct ShellThread: Sendable {
     let isChild, archived, deleted: Bool
     private(set) var parentId: String?
     let isSubagent: Bool
+    /// The thread (on any machine) that delegated this one, which T3 lists it under.
+    var delegatedFromEnvironment, delegatedFromThread: String?
     /// What this thread asks its parent for, if it's a live app-owned subagent with a request.
     let subagentRequest: ThreadStatus?
     /// T3's pill inputs (see `presentThreadShell` / `shellRuntime` in client-runtime models.ts).
@@ -1330,6 +1374,14 @@ struct ShellThread: Sendable {
     }
 
     mutating func refreshStatus() { status = resolveStatus() }
+
+    /// T3 lists work delegated from a thread it can see (here or on another machine) under that
+    /// thread, not on its own; the parent reads as Waiting meanwhile. A delegated task that
+    /// needs you stays on its own, so its question never goes unseen.
+    func isShownUnderParent(_ parent: ShellThread?) -> Bool {
+        guard let parent, !parent.archived, !parent.deleted else { return false }
+        return !status.needsYou
+    }
 
     /// The same thread, with its ids keyed for another machine (nil: this Mac, unchanged).
     func namespaced(_ environmentId: String?) -> ShellThread {
@@ -1535,13 +1587,15 @@ enum Incoming: Sendable {
         let lineage = t["lineage"] as? [String: Any]
         let isSubagent = lineage?["relationshipToParent"] as? String == "subagent"
 
-        // shellRuntime(): background work (subagent/monitor/task, not plain commands) parks the
-        // run at idle; otherwise the activity run's status wins over the latest run's.
+        // shellRuntime(): background work that holds the run (see below) parks it at idle;
+        // otherwise the activity run's status wins over the latest run's.
         let tasks = t["pendingBackgroundTasks"] as? [[String: Any]] ?? []
-        // backgroundWorkHoldsCompletion(): awaited work of any kind, or subagent/monitor/task work.
+        // backgroundWorkHoldsCompletion(): awaited work of any kind, or a subagent or background
+        // task. Commands and monitors (a dev server, its watchdog, a PR watch) hold only when
+        // the agent marks them awaited, so a thread minding a PR isn't "working" forever.
         func holdsCompletion(_ task: [String: Any]) -> Bool {
             task["awaited"] as? Bool == true
-                || ["subagent", "monitor", "background_task"].contains(task["kind"] as? String ?? "")
+                || ["subagent", "background_task"].contains(task["kind"] as? String ?? "")
         }
         let holds = tasks.contains(where: holdsCompletion)
         let parkAtIdle = holds && status != "failed"
@@ -1595,6 +1649,8 @@ enum Incoming: Sendable {
             deleted: t["deletedAt"] is String,
             parentId: lineage?["parentThreadId"] as? String,
             isSubagent: isSubagent,
+            delegatedFromEnvironment: (t["delegatedFrom"] as? [String: Any])?["environmentId"] as? String,
+            delegatedFromThread: (t["delegatedFrom"] as? [String: Any])?["threadId"] as? String,
             subagentRequest: subagentRequest,
             hasPendingApprovals: hasPendingApprovals,
             hasPendingUserInput: hasPendingUserInput,
