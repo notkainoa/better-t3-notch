@@ -689,11 +689,8 @@ final class ThreadStore: ObservableObject {
     /// `T3NOTCH_DUMP=path`: every thread the notch knows (top level), where it put it, and the
     /// summary, as JSON, for checking the notch against T3's own lists.
     private static let dumpPath = ProcessInfo.processInfo.environment["T3NOTCH_DUMP"]
-    private var lastDump = Date.distantPast
 
     private func dump(_ threads: [ShellThread], now: Date, to path: String) {
-        guard now.timeIntervalSince(lastDump) > 2 else { return }
-        lastDump = now
         let rows: [[String: Any]] = threads.map { t in
             let slash = t.id.firstIndex(of: "/")
             let shelf = t.shelf(now: now)
@@ -1380,7 +1377,7 @@ struct ShellThread: Sendable {
     /// needs you stays on its own, so its question never goes unseen.
     func isShownUnderParent(_ parent: ShellThread?) -> Bool {
         guard let parent, !parent.archived, !parent.deleted else { return false }
-        return !status.needsYou
+        return NotchSummary.kind(of: status) != .question // approvals, input, guest messages
     }
 
     /// The same thread, with its ids keyed for another machine (nil: this Mac, unchanged).
@@ -1593,9 +1590,10 @@ enum Incoming: Sendable {
         // backgroundWorkHoldsCompletion(): awaited work of any kind, or a subagent or background
         // task. Commands and monitors (a dev server, its watchdog, a PR watch) hold only when
         // the agent marks them awaited, so a thread minding a PR isn't "working" forever.
+        // T3 reads a kind it doesn't know as background_task, which holds.
         func holdsCompletion(_ task: [String: Any]) -> Bool {
             task["awaited"] as? Bool == true
-                || ["subagent", "background_task"].contains(task["kind"] as? String ?? "")
+                || !["command", "monitor"].contains(task["kind"] as? String ?? "")
         }
         let holds = tasks.contains(where: holdsCompletion)
         let parkAtIdle = holds && status != "failed"
