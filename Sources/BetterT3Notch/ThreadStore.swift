@@ -548,13 +548,19 @@ final class ThreadStore: ObservableObject {
     }
 
     private func recompute() {
-        // Subagents ask through their parent: an app-owned child's question shows on its ancestors.
+        // Subagents ask through their parent: an app-owned child's question shows on its ancestors,
+        // up through subagents and side chats. A side chat asks its parent directly
+        // (pendingSubagentRequestsByThread).
         var childRequests: [String: ThreadStatus] = [:]
         for child in shell.values {
+            if let request = child.sideChatRequest, let parent = child.parentId {
+                if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
+                continue
+            }
             guard let request = child.subagentRequest else { continue }
             var seen: Set<String> = [child.id]
             var current: ShellThread? = child
-            while let c = current, c.isSubagent, let parent = c.parentId, !seen.contains(parent) {
+            while let c = current, c.isSubagent || c.isSideChat, let parent = c.parentId, !seen.contains(parent) {
                 seen.insert(parent)
                 if childRequests[parent] != .pendingApproval { childRequests[parent] = request }
                 current = shell[parent]
@@ -578,7 +584,7 @@ final class ThreadStore: ObservableObject {
                 var next: ShellThread? = parent
                 while let p = next, seen.insert(p.id).inserted {
                     if childRequests[p.id] != .pendingApproval { childRequests[p.id] = request }
-                    next = p.isSubagent ? p.parentId.flatMap { shell[$0] } : nil
+                    next = p.isSubagent || p.isSideChat ? p.parentId.flatMap { shell[$0] } : nil
                 }
             }
             if childRequests == before { break }
@@ -1366,6 +1372,10 @@ struct ShellThread: Sendable {
     let isChild, archived, deleted: Bool
     private(set) var parentId: String?
     let isSubagent: Bool
+    /// A side chat: hidden under its parent, and asks through it.
+    let isSideChat: Bool
+    /// What a side chat asks its parent (approvals and questions alike: it talks to the user).
+    let sideChatRequest: ThreadStatus?
     /// The thread (on any machine) that delegated this one, which T3 lists it under.
     var delegatedFromEnvironment, delegatedFromThread: String?
     /// What this thread, a task delegated from another machine, asks the thread that delegated it.
@@ -1635,6 +1645,7 @@ enum Incoming: Sendable {
         let pendingKind = pending?["kind"] as? String
         let lineage = t["lineage"] as? [String: Any]
         let isSubagent = lineage?["relationshipToParent"] as? String == "subagent"
+        let isSideChat = lineage?["sideChat"] as? Bool == true
 
         // shellRuntime(): background work that holds the run (see below) parks it at idle;
         // otherwise the activity run's status wins over the latest run's.
@@ -1704,11 +1715,14 @@ enum Incoming: Sendable {
             provider: provider(t),
             // T3's sidebar: forks (and handoffs) are threads of their own; only subagents and
             // side chats live under their parent.
-            isChild: lineage?["parentThreadId"] as? String != nil && (isSubagent || lineage?["sideChat"] as? Bool == true),
+            isChild: lineage?["parentThreadId"] as? String != nil && (isSubagent || isSideChat),
             archived: t["archivedAt"] is String,
             deleted: t["deletedAt"] is String,
             parentId: lineage?["parentThreadId"] as? String,
             isSubagent: isSubagent,
+            isSideChat: isSideChat,
+            sideChatRequest: isSideChat && pendingKind != nil && pendingKind != "auth_refresh"
+                ? (pendingKind == "user_input" ? .awaitingInput : .pendingApproval) : nil,
             delegatedFromEnvironment: delegatedFrom?["environmentId"] as? String,
             delegatedFromThread: delegatedFrom?["threadId"] as? String,
             delegatedRequest: delegatedRequest,

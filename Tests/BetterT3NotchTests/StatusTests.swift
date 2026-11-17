@@ -197,6 +197,17 @@ import Testing
         #expect(with(["id": "r1", "kind": "command"]).parentId == "parent")
     }
 
+    @Test func sideChatAsksThroughItsParent() {
+        let base: [String: Any] = ["lineage": ["parentThreadId": "parent", "sideChat": true]]
+        func with(_ request: [String: Any]) -> ShellThread { shell(base.merging(["pendingRuntimeRequest": request]) { $1 }) }
+        #expect(shell(base).isChild)
+        #expect(shell(base).sideChatRequest == nil)
+        // It talks to the user, so its questions go up as well as its approvals.
+        #expect(with(["id": "r1", "kind": "user_input"]).sideChatRequest == .awaitingInput)
+        #expect(with(["id": "r1", "kind": "command"]).sideChatRequest == .pendingApproval)
+        #expect(with(["id": "r1", "kind": "auth_refresh"]).sideChatRequest == nil)
+    }
+
     @Test func forksAreTopLevelLikeInT3sSidebar() {
         let fork = shell(["status": "running", "activityRunStatus": "running",
                           "lineage": ["parentThreadId": "parent", "relationshipToParent": "fork", "rootThreadId": "root"]])

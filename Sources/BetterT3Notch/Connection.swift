@@ -148,11 +148,11 @@ final class Connection {
                 // (a tunnel dropped, or the network changed while asleep).
                 // Before that, the shell snapshot (MBs through a tunnel) gets 90 s from the open,
                 // however many pongs come back meanwhile: a subscription that never answers is
-                // as dead as a silent socket.
+                // as dead as a silent socket (this Mac's server too).
                 let now = Date()
-                if let limit = self.silenceLimit,
-                   self.connected ? now.timeIntervalSince(self.lastHeard) > limit
-                                  : now.timeIntervalSince(self.openedAt) > max(limit, 90) {
+                if self.connected
+                    ? self.silenceLimit.map { now.timeIntervalSince(self.lastHeard) > $0 } ?? false
+                    : now.timeIntervalSince(self.openedAt) > max(self.silenceLimit ?? 0, 90) {
                     log.notice("silent, reconnecting: \(self.label, privacy: .public)")
                     self.scheduleReconnect(gen, status: nil)
                     return
