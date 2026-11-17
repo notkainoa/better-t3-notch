@@ -213,6 +213,9 @@ import Testing
         #expect(!unread.isRead(after: unread.readAfter!))
         let read = shell(done.merging(["lastVisitedAt": "2026-10-27T20:00:01.000Z"]) { _, b in b })
         #expect(read.isRead(after: read.readAfter!))
+        // T3's rule: a visit at the completion itself counts (completedAt > lastVisitedAt is unread).
+        let atCompletion = shell(done.merging(["lastVisitedAt": "2026-10-27T20:00:00.000Z"]) { _, b in b })
+        #expect(atCompletion.isRead(after: atCompletion.readAfter!))
     }
 
     @Test func requestIsReadOnceAVisitComesAfterIt() {
@@ -223,6 +226,17 @@ import Testing
         let before = shell(ask.merging(["lastVisitedAt": "2026-10-27T19:59:58.000Z"]) { _, b in b })
         #expect(!before.isRead(after: before.readAfter!))
         // Opening it in T3 stamps the visit with the thread's updatedAt.
+        let opened = shell(ask.merging(["lastVisitedAt": "2026-10-27T20:00:00.500Z"]) { _, b in b })
+        #expect(opened.isRead(after: opened.readAfter!))
+    }
+
+    @Test func questionIsReadOnceAVisitComesAfterIt() {
+        let ask: [String: Any] = ["status": "running", "activityRunStatus": "running",
+                                  "updatedAt": "2026-10-27T20:00:00.500Z",
+                                  "pendingRuntimeRequest": ["id": "r1", "kind": "user_input", "createdAt": "2026-10-27T20:00:00.000Z"]]
+        let before = shell(ask.merging(["lastVisitedAt": "2026-10-27T19:59:58.000Z"]) { _, b in b })
+        #expect(before.status == .awaitingInput)
+        #expect(!before.isRead(after: before.readAfter!))
         let opened = shell(ask.merging(["lastVisitedAt": "2026-10-27T20:00:00.500Z"]) { _, b in b })
         #expect(opened.isRead(after: opened.readAfter!))
     }

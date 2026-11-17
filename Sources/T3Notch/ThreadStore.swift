@@ -945,6 +945,11 @@ final class ThreadStore: ObservableObject {
     /// Opened in T3 Code (here, there, or already open): put the pop-up away. A "needs you" card
     /// shrinks to its island; a finish closes.
     private func checkEventRead() {
+        // A finish still held for its receipt: seen in T3 Code now, so it never shows.
+        if let id = heldFinishId, Self.t3InFront, let t = shell[id], let after = t.readAfter, t.isRead(after: after) {
+            log.notice("seen in T3 while held: \(id, privacy: .public)")
+            cancelHeldFinish()
+        }
         guard let id = eventId, let after = eventReadAfter, let t = shell[id], t.isRead(after: after) else { return }
         if Self.t3InFront {
             log.notice("seen in T3: \(id, privacy: .public)")
@@ -963,7 +968,8 @@ final class ThreadStore: ObservableObject {
             try? await Task.sleep(for: .milliseconds(700))
             guard let self, !Task.isCancelled else { return }
             self.heldFinishId = nil
-            guard let t = self.shell[id] else { return }
+            // Gone, or already running again (a queued follow-up): nothing finished to show.
+            guard let t = self.shell[id], t.phase == .completed || t.phase == .failed else { return }
             if let after = readAfter, t.isRead(after: after), Self.t3InFront { return }
             self.show(id, kind, for: 7, readAfter: readAfter)
         }
