@@ -304,9 +304,8 @@ extension NSScreen {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private let store = ThreadStore()
-    private lazy var live = LiveActivityMirror(store: store)
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SettingsHost {
+    let store = ThreadStore()
     private var controllers: [NotchController] = []
     private var monitors: [Any] = []
     private var statusItem: NSStatusItem!
@@ -319,7 +318,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
 
-        _ = live // starts mirroring to the iPhone Live Activity, once set up
         Theme.start() // before the first panels, so they open already matching T3
         rebuildPanels()
         NotificationCenter.default.addObserver(forName: Theme.didChange, object: nil, queue: .main) { [weak self] _ in
@@ -368,6 +366,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .store(in: &cancellables)
 
         store.start()
+        // Screenshots / testing: put the Settings window up without taking focus.
+        if let tab = ProcessInfo.processInfo.environment["T3NOTCH_OPEN_SETTINGS"] {
+            settings.show(tab: Int(tab), activate: false)
+        }
     }
 
     private var hotKey: HotKey?
@@ -405,7 +407,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: Settings menu (status item + gear in the notch)
+    // MARK: Settings (window, plus a short status item menu)
+
+    private lazy var settings = SettingsWindowController(host: self)
 
     private func buildMenu(_ menu: NSMenu) {
         menu.removeAllItems()
@@ -415,227 +419,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(warn)
             menu.addItem(.separator())
         }
-        let header = NSMenuItem(title: "Show notch on", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-
-        let current = DisplayChoice.saved
-        func add(_ title: String, _ choice: DisplayChoice) {
-            let item = NSMenuItem(title: title, action: #selector(pickDisplay(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = choice
-            item.state = current == choice ? .on : .off
-            item.indentationLevel = 1
-            menu.addItem(item)
-        }
-        add("All displays", .all)
-        add("Built-in display", .builtIn)
-        for screen in NSScreen.screens where !screen.isBuiltIn {
-            add(screen.localizedName, .named(screen.localizedName))
-        }
-        // Remembered monitor that is currently unplugged.
-        if case .named(let name) = current, !NSScreen.screens.contains(where: { $0.localizedName == name }) {
-            add("\(name) (disconnected, using built-in)", current)
-        }
-
-        menu.addItem(.separator())
-        let sounds = NSMenuItem(title: "Sounds", action: #selector(toggleSounds), keyEquivalent: "")
-        sounds.target = self
-        sounds.state = Chime.enabled ? .on : .off
-        menu.addItem(sounds)
-
-        let capture = NSMenuItem(title: "Visible in Screen Sharing & Screenshots", action: #selector(toggleCapture), keyEquivalent: "")
-        capture.target = self
-        capture.state = Settings.hideFromCapture ? .off : .on
-        capture.toolTip = "Off (default): the notch never appears in Zoom/Meet shares, recordings or screenshots."
-        menu.addItem(capture)
-
-        menu.addItem(themeMenu())
-        menu.addItem(liveMenu())
-
-        let hover = NSMenuItem(title: "Open on Hover", action: #selector(toggleOpenOnHover), keyEquivalent: "")
-        hover.target = self
-        hover.state = Settings.openOnHover ? .on : .off
-        hover.toolTip = "Off (default): click the notch to open the list."
-        menu.addItem(hover)
-
-        let glow = NSMenuItem(title: "Accent Glow", action: #selector(toggleAccentGlow), keyEquivalent: "")
-        glow.target = self
-        glow.state = Settings.accentGlow ? .on : .off
-        glow.toolTip = "The open notch glows in the theme's accent color. Off: a plain dark shadow."
-        menu.addItem(glow)
-
-        let showModel = NSMenuItem(title: "Show Model", action: #selector(toggleShowModel), keyEquivalent: "")
-        showModel.target = self
-        showModel.state = Settings.showModel ? .on : .off
-        menu.addItem(showModel)
-
-        let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
-        login.target = self
-        switch SMAppService.mainApp.status {
-        case .enabled: login.state = .on
-        case .requiresApproval: login.state = .mixed // allowed in System Settings yet?
-        default: login.state = .off
-        }
-        menu.addItem(login)
-
-        let shortcut = NSMenuItem(title: "Open with ⌘⇧Space", action: nil, keyEquivalent: "")
-        shortcut.isEnabled = false
-        menu.addItem(shortcut)
-
-        menu.addItem(.separator())
+        let prefs = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        prefs.target = self
+        menu.addItem(prefs)
         let open = NSMenuItem(title: "Open T3 Code", action: #selector(openT3), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit T3 Notch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
-    /// Theme ▸ Match T3 Code (Ember) / Classic / T3's palettes.
-    private func themeMenu() -> NSMenuItem {
-        let sub = NSMenu()
-        let choice = ThemeChoice.saved
-        func add(_ title: String, _ value: ThemeChoice, on: Bool) {
-            let item = NSMenuItem(title: title, action: #selector(pickTheme(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            item.state = on ? .on : .off
-            sub.addItem(item)
-        }
-        add("Match T3 Code (\(Theme.detected.label))", .matchT3, on: choice == .matchT3)
-        sub.addItem(.separator())
-        for theme in [NotchTheme.classic] + NotchTheme.t3 {
-            add(theme.label, .fixed(theme.id), on: choice == .fixed(theme.id))
-        }
-        let item = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
-        item.submenu = sub
-        return item
-    }
+    @objc private func openSettings() { settings.show() }
 
-    /// iPhone Live Activity: push key, pairing, status.
-    private func liveMenu() -> NSMenuItem {
-        let sub = NSMenu()
-        let setup = live.setup
-        func info(_ text: String) {
-            let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            sub.addItem(item)
-        }
-        info(setup.hasKey ? "Push key: \(setup.keyId ?? "")" : "Push key: not set")
-        info(setup.paired ? "Paired with \(setup.deviceName ?? "iPhone")" : "Not paired")
-        if let result = live.lastResult { info("Last: \(result)") }
-        sub.addItem(.separator())
-        sub.addItem(NSMenuItem(title: setup.hasKey ? "Replace Push Key…" : "Set Push Key (AuthKey .p8)…",
-                               action: #selector(setPushKey), keyEquivalent: ""))
-        sub.addItem(NSMenuItem(title: setup.paired ? "Pair Again…" : "Pair iPhone…", action: #selector(pairPhone), keyEquivalent: ""))
-        if setup.paired {
-            sub.addItem(NSMenuItem(title: "Restart Live Activity", action: #selector(restartLive), keyEquivalent: ""))
-            sub.addItem(NSMenuItem(title: "Unpair", action: #selector(unpairPhone), keyEquivalent: ""))
-        }
-        sub.items.forEach { if $0.action != nil { $0.target = self } }
-        let item = NSMenuItem(title: "iPhone Live Activity", action: nil, keyEquivalent: "")
-        item.submenu = sub
-        return item
-    }
-
-    @objc private func setPushKey() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose your APNs auth key"
-        panel.message = "The AuthKey_<KEY ID>.p8 file from Certificates, IDs & Profiles → Keys. It's copied to T3 Notch's private folder."
-        panel.allowedContentTypes = [.init(filenameExtension: "p8") ?? .data]
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
-        NSApp.activate()
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        // The team id isn't in the key file; it's on developer.apple.com → Membership (10 characters).
-        let ask = NSAlert()
-        ask.messageText = "Your Apple Developer Team ID"
-        ask.informativeText = "The team that owns this key and signs the iPhone app (developer.apple.com → Membership details)."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        field.stringValue = live.setup.teamId
-        field.placeholderString = "XXXXXXXXXX"
-        ask.accessoryView = field
-        ask.addButton(withTitle: "Save")
-        ask.addButton(withTitle: "Cancel")
-        guard ask.runModal() == .alertFirstButtonReturn else { return }
-        let team = field.stringValue.trimmingCharacters(in: .whitespaces).uppercased()
-        guard team.count == 10, team.allSatisfy({ $0.isLetter || $0.isNumber }) else {
-            alert("That doesn't look like a Team ID", "It's 10 letters and digits, like A1B2C3D4E5."); return
-        }
-        do { try live.installKey(from: url, teamId: team) } catch { alert("That key didn't work", error.localizedDescription) }
-    }
-
-    private var pairingWindow: PairingWindow?
-
-    /// A floating window with the code, not a modal alert: a modal run loop would freeze the
-    /// notch (it couldn't collapse) for as long as the code is up.
-    @objc private func pairPhone() {
-        pairingWindow?.close()
-        let window = PairingWindow { [weak self] request in self?.live.paired(request) }
-        do { try window.start() } catch { alert("Couldn't start pairing", error.localizedDescription); return }
-        window.onClose = { [weak self] in self?.pairingWindow = nil }
-        pairingWindow = window
-    }
-
-    @objc private func unpairPhone() { live.unpair() }
-    @objc private func restartLive() { live.restart() }
-
-    private func alert(_ title: String, _ text: String) {
-        let a = NSAlert()
-        a.messageText = title
-        a.informativeText = text
-        NSApp.activate()
-        a.runModal()
-    }
-
-    @objc private func pickTheme(_ sender: NSMenuItem) {
-        guard let choice = sender.representedObject as? ThemeChoice else { return }
-        // Defer so we don't tear down the panel whose menu is still unwinding.
-        DispatchQueue.main.async { Theme.choose(choice) }
-    }
 
     private func showSettings(from screen: NSScreen) {
-        let menu = NSMenu()
-        buildMenu(menu)
-        controllers.forEach { $0.holdOpen = true }
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-        // popUp blocks until the menu closes.
         controllers.forEach { $0.collapse() }
+        settings.show()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) { buildMenu(menu) }
 
-    @objc private func pickDisplay(_ sender: NSMenuItem) {
-        guard let choice = sender.representedObject as? DisplayChoice else { return }
-        DisplayChoice.saved = choice
-        // Defer so we don't tear down the panel whose menu is still unwinding.
+    // MARK: SettingsHost
+
+    func displayChanged() {
         DispatchQueue.main.async { self.rebuildPanels() }
     }
 
-    @objc private func toggleSounds() {
-        Chime.enabled.toggle()
-        if Chime.enabled { Chime.shared.play(.done) } // a little preview
-    }
-
-    @objc private func toggleCapture() {
-        Settings.hideFromCapture.toggle()
+    func captureChanged() {
         controllers.forEach { $0.applyCaptureSetting() }
     }
 
-    @objc private func toggleOpenOnHover() {
-        Settings.openOnHover.toggle()
+    func panelsNeedRebuild() {
+        DispatchQueue.main.async { self.rebuildPanels() }
     }
 
-    @objc private func toggleAccentGlow() {
-        Settings.accentGlow.toggle()
-        // Defer so we don't tear down the panel whose menu is still unwinding.
-        DispatchQueue.main.async { self.rebuildPanels() } // the shadow is set when a panel is built
-    }
-
-    @objc private func toggleShowModel() {
-        Settings.showModel.toggle()
-        rebuildPanels() // rows re-render with / without the model
-    }
-
-    @objc private func toggleLaunchAtLogin() {
+    func toggleLaunchAtLogin() {
         let service = SMAppService.mainApp
         do {
             if service.status == .enabled {
@@ -652,7 +470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func openT3() {
+    @objc func openT3() {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code") else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }

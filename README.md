@@ -13,7 +13,7 @@ Collapsed, it says one thing, and leaves nothing out. Anything waiting on you wi
 
 "Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake.
 
-Click it (or press **⌘⇧Space**) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on Hover** in the menu.
+Click it (or press **⌘⇧Space**) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on hover** in Settings.
 
 When an agent needs you, answer right from the notch:
 
@@ -66,11 +66,10 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 - **Live terminal:** hover a running command to watch its last lines stream in.
 - **At a glance:** branch, model with the provider's logo, PR number with CI checks / review / conflict markers, and a usage-limit countdown.
 - **Keyboard:** ⌘⇧Space opens it; ↑↓ select, ⏎ open, R reply, A/D approve/deny, 1–9 answer, Esc close.
-- **Matches your T3 theme:** background, buttons, cards, the glow and the Working color follow T3's palette (T3 Chat, Grove, Ocean, Ember, Iris) live. Around a camera notch the top stays black and fades into the theme color. Pick one yourself under Theme in the menu.
+- **Matches your T3 theme:** background, buttons, cards, the glow and the Working color follow T3's palette (T3 Chat, Grove, Ocean, Ember, Iris) live. Around a camera notch the top stays black and fades into the theme color. Pick one yourself under Settings → Appearance.
 - **Cozy sounds:** a soft chime when a run finishes, a deep wooden knock-knock when an agent needs you.
-- **Private by default:** invisible to screen sharing, recordings and screenshots (toggle in the menu).
+- **Private by default:** invisible to screen sharing, recordings and screenshots (toggle in Settings → General).
 - **Light on resources:** AppKit + Core Animation, no SwiftUI. Under 1% CPU while agents run, and no memory growth (see [Performance](#performance)).
-- **On your iPhone, anywhere:** a Live Activity on the Lock Screen (and Apple Watch, CarPlay, StandBy) that the Mac pushes straight to Apple, so it updates in real time over cellular too. See [iPhone Live Activity](#iphone-live-activity).
 
 ## Requirements
 
@@ -86,30 +85,11 @@ open T3Notch.app
 swift test          # status, wire-format and diff-count tests
 ```
 
-The menu-bar icon has the settings: which display(s) to show it on, sounds, screen-sharing visibility, theme, model display, and Launch at Login.
+Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, ⌘,) is a regular window with three tabs:
 
-## iPhone Live Activity
-
-Your threads on the iPhone's Lock Screen, updated in real time wherever you are, not just on your home Wi-Fi. The notch already sees every state change as it happens and pushes it straight to Apple's push service (APNs) from your Mac. There's no server in between.
-
-- **What it shows:** the running threads with their pixel logos, live timers (counted on the phone), `+/−` lines rolling to new values, PR number with CI checks, and a card for what just happened, with the final message or the question.
-- **Sounds:** the notch's own. A chime when a run finishes, the wooden knock-knock when an agent needs you, a lower knock when one fails. The screen lights up for those, and only those.
-- **Tap:** opens that thread in T3 Code.
-- **Lifecycle:** it starts by itself when a thread starts working, ends 5 minutes after everything is idle, and restarts before iOS's 8-hour limit.
-
-How it works: the iPhone app pairs once over the local network and hands the Mac its push-to-start token. The Mac starts the Live Activity remotely, subscribed to a broadcast channel (iOS 18+), and sends every update to that channel. APNs allows a channel about 4 updates a minute, so finishes and "needs you" go out at once and smaller changes are batched.
-
-### Setup
-
-You need a paid Apple Developer account and Xcode.
-
-1. **Build and install the iPhone app:** with the phone connected, run `cd Phone && T3NOTCH_TEAM_ID=<your team id> xcodegen`, then open `T3NotchPhone.xcodeproj` and run it (or build with `xcodebuild … -allowProvisioningUpdates`). The bundle ids are `dev.custom-dock.t3notch.phone` (+ `.live`); change them in `Phone/project.yml` and `LiveActivityProtocol.phoneBundleId` if they're taken.
-2. **Turn on broadcast:** in Certificates, IDs & Profiles → Identifiers → the phone app → Push Notifications, tick **Broadcast Capability**.
-3. **Create a push key:** Keys → **+** → Apple Push Notifications service (Sandbox & Production, team scoped). Download the `.p8`.
-4. **On the Mac:** menu → **iPhone Live Activity → Set Push Key…**, pick the `.p8` and enter your team id. It's copied to `~/Library/Application Support/T3Notch/` with owner-only permissions.
-5. **Pair:** **Pair iPhone…** shows a 6-digit code; enter it in the phone app (same Wi-Fi, this once).
-
-If the Live Activity ever goes missing while threads run (swiped away, or ended by an app update), use **Restart Live Activity** in the same menu.
+- **General:** which display(s) to show it on, Open on hover, screen-sharing visibility, Launch at Login.
+- **Notifications:** turn each pop-up off on its own (a run finishing, a run failing, an agent needing you), and each sound (finished, failed, needs you, pull request news, usage limit resets) or all of them. A turned-off pop-up still counts in the notch and shows in the list.
+- **Appearance:** theme, accent glow, showing the model.
 
 ## How it connects
 

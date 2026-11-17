@@ -145,11 +145,33 @@ final class ThreadStore: ObservableObject {
     var inbox: [T3Thread] { threads.filter { inboxIds.contains($0.id) } }
     /// Which of `threads` the list shows (the rest are followed for work or a pop-up).
     private var inboxIds: Set<String> = []
-    var event: T3Thread? { eventId.flatMap { id in threads.first { $0.id == id } } }
+    /// The pop-up the notch shows: `eventId`'s thread, unless that kind of pop-up is turned off.
+    var event: T3Thread? {
+        guard let t = eventId.flatMap({ id in threads.first { $0.id == id } }) else { return nil }
+        return Self.popsUp(eventKind) ? t : nil
+    }
+    /// What the event was when it happened. Not read off the thread's status later: T3 shows a
+    /// failed run you've looked at as idle, which would make it follow the "finished" switch.
+    enum EventKind { case done, failed, needsYou, forced }
+    private var eventKind: EventKind = .done
+
+    private static func popsUp(_ kind: EventKind) -> Bool {
+        switch kind {
+        case .done: Settings.popDone
+        case .failed: Settings.popFailed
+        case .needsYou: Settings.popNeedsYou
+        case .forced: true // brought back on purpose (showEvent)
+        }
+    }
+
+    /// A pop-up switch changed: put away a pop-up of a kind that's now turned off.
+    func popUpSettingsChanged() {
+        if eventId != nil, !Self.popsUp(eventKind) { dismissEvent() }
+    }
     /// The "needs you" card stays up (and stays interactive) until it's answered or dismissed.
     var stickyEvent: T3Thread? { event.flatMap { $0.status.needsYou ? $0 : nil } }
 
-    /// Rows in the open list, and busy threads followed for the Live Activity.
+    /// Rows in the open list, and busy threads followed for their activity and final message.
     static let inboxCount = 6
     static let busyCount = 4
 
@@ -179,8 +201,6 @@ final class ThreadStore: ObservableObject {
     private var nextRequestId = 1
     private var shellRequestId = ""
     private var environmentId: String?
-    /// T3's environment id (for deep links into T3 Code, here and on the phone).
-    var currentEnvironmentId: String? { environmentId }
     private var pingTimer: Timer?
     private var retryDelay: TimeInterval = 1
     private let auth = TokenStore()
@@ -261,7 +281,7 @@ final class ThreadStore: ObservableObject {
 
     /// Bring a put-away "needs you" card back (the little island beside the notch).
     func showEvent(_ t: T3Thread) {
-        show(t.id, for: t.status.needsYou ? nil : 7)
+        show(t.id, .forced, for: t.status.needsYou ? nil : 7)
     }
 
     func dismissEvent() {
@@ -844,10 +864,10 @@ final class ThreadStore: ObservableObject {
             let before = lastPRs[id]
             if pr.checks == .failing && before?.checks != .failing {
                 log.notice("checks failing: \(id, privacy: .public)")
-                Chime.shared.play(.failed)
+                if Settings.sound(.pullRequest) { Chime.shared.play(.failed) }
             } else if pr.review != nil && pr.review != .reviewRequired && pr.review != before?.review {
                 log.notice("review: \(id, privacy: .public)")
-                Chime.shared.play(.needsYou)
+                if Settings.sound(.pullRequest) { Chime.shared.play(.needsYou) }
             }
         }
 
@@ -861,14 +881,14 @@ final class ThreadStore: ObservableObject {
             let wasActive = before == .active || before == .needsYou
             switch phase {
             case .needsYou where before != .needsYou:
-                show(id, for: nil) // sticky until answered
+                show(id, .needsYou, for: nil) // sticky until answered
                 log.notice("needs you: \(id, privacy: .public)")
-                Chime.shared.play(.needsYou)
+                if Settings.sound(.needsYou) { Chime.shared.play(.needsYou) }
                 return
             case .completed where wasActive, .failed where wasActive:
-                show(id, for: 7)
+                show(id, phase == .failed ? .failed : .done, for: 7)
                 log.notice("\(phase == .failed ? "failed" : "done", privacy: .public): \(id, privacy: .public)")
-                Chime.shared.play(phase == .failed ? .failed : .done)
+                if Settings.sound(phase == .failed ? .failed : .done) { Chime.shared.play(phase == .failed ? .failed : .done) }
                 return
             default:
                 continue
@@ -883,11 +903,12 @@ final class ThreadStore: ObservableObject {
             guard let reset = t.usageLimitResetAt, reset <= now, !limitChimed.contains(t.id) else { continue }
             limitChimed.insert(t.id)
             log.notice("limit reset: \(t.id, privacy: .public)")
-            Chime.shared.play(.done)
+            if Settings.sound(.limitReset) { Chime.shared.play(.done) }
         }
     }
 
-    private func show(_ id: String, for seconds: Double?) {
+    private func show(_ id: String, _ kind: EventKind, for seconds: Double?) {
+        eventKind = kind
         eventId = id
         eventClearTask?.cancel()
         guard let seconds else { return }
