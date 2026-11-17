@@ -145,8 +145,6 @@ final class ThreadStore: ObservableObject {
     var inbox: [T3Thread] { threads.filter { inboxIds.contains($0.id) } }
     /// Which of `threads` the list shows (the rest are followed for work or a pop-up).
     private var inboxIds: Set<String> = []
-    /// Waiting threads that didn't get a row.
-    var inboxOverflow: Int { max(0, summary.attention - inbox.count) }
     var event: T3Thread? { eventId.flatMap { id in threads.first { $0.id == id } } }
     /// The "needs you" card stays up (and stays interactive) until it's answered or dismissed.
     var stickyEvent: T3Thread? { event.flatMap { $0.status.needsYou ? $0 : nil } }

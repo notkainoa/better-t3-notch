@@ -134,6 +134,7 @@ final class NotchRootView: NSView {
         let size = model.size
         // Where the black shape is *right now* (mid-spring), before it's retargeted.
         var shapeFrom: CGPath?
+        var damping: CGFloat = 0.78
         if applied?.mode != mode || applied?.size != size {
             let animate = animated && applied != nil
             if animate { shapeFrom = shape.presentation()?.path ?? shape.path }
@@ -141,10 +142,12 @@ final class NotchRootView: NSView {
             // Shrinking settles without overshoot: an underdamped spring dipped below the pill
             // (showing the bare camera notch) before springing back out.
             let shrinking = applied.map { size.width < $0.size.width || size.height < $0.size.height } ?? false
-            setShape(size: size, animated: animate, damping: finishing ? 0.6 : shrinking ? 1 : 0.78)
+            // Any shrink wins over the finish's bounce (closing the list onto a finished card too).
+            damping = shrinking ? 1 : finishing ? 0.6 : 0.78
+            setShape(size: size, animated: animate, damping: damping)
             applied = (mode, size)
         }
-        syncContent(mode: mode, size: size, shapeFrom: shapeFrom)
+        syncContent(mode: mode, size: size, shapeFrom: shapeFrom, damping: damping)
         pill.frame = CGRect(x: (bounds.width - size.width) / 2, y: 0, width: size.width, height: model.notchSize.height)
         pill.setVisible(mode == .activity)
         if mode == .activity { pill.update() }
@@ -325,7 +328,7 @@ final class NotchRootView: NSView {
 
     // MARK: Expanded list / cards, only while open
 
-    private func syncContent(mode: NotchMode, size: CGSize, shapeFrom: CGPath?) {
+    private func syncContent(mode: NotchMode, size: CGSize, shapeFrom: CGPath?, damping: CGFloat) {
         let event = store.event
         let key: String = switch mode {
         case .expanded: "expanded"
@@ -367,7 +370,7 @@ final class NotchRootView: NSView {
                 // outside the notch while it grows. Shape paths live in our coordinates; the mask
                 // is in the content view's, so shift by its origin.
                 var shift = CGAffineTransform(translationX: -frame.minX, y: 0)
-                let spring = Self.spring("path")
+                let spring = Self.spring("path", damping: damping) // the shape's own spring
                 spring.fromValue = shapeFrom.copy(using: &shift)
                 spring.toValue = target
                 mask.add(spring, forKey: "path")

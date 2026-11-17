@@ -192,7 +192,8 @@ final class NotchModel: ObservableObject {
 
     /// The footer's button at `y` points below the top of the notch (expanded layout).
     func isFooter(atY y: CGFloat) -> Bool {
-        mode == .expanded && y >= footerTop + 6 && y < footerTop + Self.footerHeight - 6
+        // The footer's plate: 8pt below its top, 4pt above its bottom (ShelfFooter.layout).
+        mode == .expanded && y >= footerTop + 8 && y < footerTop + Self.footerHeight - 4
     }
 
     /// Everything the collapsed notch draws. While collapsed, store changes that leave this
