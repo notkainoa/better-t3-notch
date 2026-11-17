@@ -5,7 +5,7 @@ import Foundation
 /// Anything waiting on you takes the main words. One kind waiting gets its own words
 /// ("1 failed", "2 plans ready"); two or more kinds collapse into "N need you",
 /// with every kind's icon beside it. Working threads are counted on their own when nothing
-/// waits, or beside it ("6 working" on the left, "2 need you" on the right) when both happen.
+/// waits, or beside it ("2 need you" on the left, "6 working" on the right) when both happen.
 struct NotchSummary: Equatable, Sendable {
     /// Kinds of "waiting on you", in the order their icons are drawn.
     enum Kind: CaseIterable, Sendable { case question, plan, failed, done }
