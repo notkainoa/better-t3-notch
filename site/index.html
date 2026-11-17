@@ -42,8 +42,8 @@ p{margin:0}
 
 /* ---------- the notch: the same shape and parts as the app's closed notch ---------- */
 /* Black, flush with the top edge, its top corners flaring outward and its bottom rounded.
-   Icons sit in the left wing, words in the right one, the camera between them. */
-.notch{--h:34px;--cam:188px;--wing:84px;position:relative;display:inline-block;height:var(--h);color:#fff;
+   Icons sit in the left wing and words in the right one, each wing just wide enough for what's in it. */
+.notch{--h:34px;--cam:28px;--wl:17px;--wr:84px;position:relative;display:inline-block;height:var(--h);color:#fff;
   font:600 14px/1 var(--rounded);letter-spacing:-.005em}
 .notch::before,.notch::after{content:"";position:absolute;top:0;width:7px;height:7px;
   background:radial-gradient(circle at 0 100%,transparent 6.5px,#000 7px)}
@@ -56,8 +56,9 @@ p{margin:0}
 .notch .body::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   border:1px solid rgba(255,255,255,.13);border-top:0;
   -webkit-mask-image:linear-gradient(transparent 30%,#000 85%);mask-image:linear-gradient(transparent 30%,#000 85%)}
-.notch .wing{position:relative;width:calc(var(--wing) + 14px);height:100%;flex:none;
+.notch .wing{position:relative;width:calc(var(--wl) + 14px);height:100%;flex:none;
   transition:width .5s var(--spring)}
+.notch .wing + .cam + .wing{width:calc(var(--wr) + 14px)}
 .notch .cam{width:var(--cam);flex:none}
 .notch .icons{position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;gap:4px;transition:opacity .2s}
 .notch .words{position:absolute;right:14px;top:0;height:100%;display:flex;align-items:center;white-space:nowrap}
@@ -190,10 +191,7 @@ footer p+p{margin-top:6px}
   .card .body{padding:18px 20px 20px}
   .stat{padding:22px}
   pre.term{font-size:12.5px;padding:16px}
-  .notch-fixed .notch{--cam:118px;--h:32px;font-size:13px}
-}
-@media (max-width:360px){
-  .notch-fixed .notch{--cam:72px}
+  .notch-fixed .notch{--cam:22px;--h:32px;font-size:13px}
 }
 /* short screens (landscape phones, small laptop windows): less vertical padding */
 @media (max-height:560px) and (min-width:561px){
@@ -392,17 +390,17 @@ footer p+p{margin-top:6px}
     { kinds: ['spin'], text: '1 working', n: 1 },
   ];
   const ctx = document.createElement('canvas').getContext('2d');
-  // Both wings are as wide as the wider of the icons and the words, like the app.
-  function wingWidth(s) {
+  // Each wing fits what's in it: the icons on the left, the words on the right.
+  function setWings(s) {
     ctx.font = getComputedStyle(notch).font;
-    const text = Math.ceil(ctx.measureText(s.text).width) + 2;
     const n = s.kinds.length;
-    return Math.max(n * 17 + (n - 1) * 4, text);
+    notch.style.setProperty('--wl', n * 17 + (n - 1) * 4 + 'px');
+    notch.style.setProperty('--wr', Math.ceil(ctx.measureText(s.text).width) + 2 + 'px');
   }
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let i = 0, prev = states[0];
   function apply(s, animate) {
-    notch.style.setProperty('--wing', wingWidth(s) + 'px');
+    setWings(s);
     if (!animate) { iconBox.innerHTML = icons(s.kinds); words.firstElementChild.textContent = s.text; return; }
     // The count rolls: up when it grows, down when it shrinks. The icons cross-fade.
     const old = words.firstElementChild, next = document.createElement('span');
@@ -423,7 +421,7 @@ footer p+p{margin-top:6px}
   }
   apply(states[0], false);
   document.fonts && document.fonts.ready.then(() => apply(prev, false));
-  addEventListener('resize', () => notch.style.setProperty('--wing', wingWidth(prev) + 'px'));
+  addEventListener('resize', () => setWings(prev));
   if (!reduce) setInterval(() => {
     if (document.hidden) return;
     i = (i + 1) % states.length; apply(states[i], true);
