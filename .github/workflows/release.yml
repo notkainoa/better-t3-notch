@@ -3,6 +3,8 @@
 # and Sparkle appcast, and only then publishes it, so download links never point at a release
 # without files. Run it by hand with a tag to rebuild an existing release.
 # PRs that touch the release machinery get a full dry run (signed, notarized, nothing published).
+# Only PRs the repo owner opens from a branch here: the dry run runs the PR's own scripts with the
+# signing secrets, so PRs from forks, bots and installed apps never get it.
 name: Release
 
 on:
@@ -48,7 +50,9 @@ jobs:
       always() && (
         needs.release-please.outputs.created == 'true' ||
         github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        (github.event_name == 'pull_request' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.user.login == github.repository_owner)
       )
     runs-on: macos-15
     timeout-minutes: 45
