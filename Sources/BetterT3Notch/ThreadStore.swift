@@ -1428,7 +1428,10 @@ struct ShellThread: Sendable {
         if pendingGuestMessages > 0 { return .guestRequest }
         if (runtimeStatus == "running" && !blockedOnThreadWait) || runtimeStatus == "waiting" { return .working }
         if ["preparing", "starting", "queued"].contains(runtimeStatus) { return .connecting }
-        if (runtimeStatus == "running" && blockedOnThreadWait) || backgroundHoldsCompletion {
+        // A failed run isn't parked by its background work (shellRuntime's `status !== "failed"`):
+        // T3's pill says Waiting, but it's off the Working shelf; the notch shows the failure.
+        if (runtimeStatus == "running" && blockedOnThreadWait)
+            || (backgroundHoldsCompletion && latestRunStatus != "failed") {
             // isThreadWorking(): a settled plan run waits on you, not on its background work.
             return planMode && runSettled && hasActionableProposedPlan ? .planReady : .waiting
         }

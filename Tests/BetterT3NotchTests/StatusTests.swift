@@ -249,6 +249,14 @@ import Testing
         #expect(!parent.status.isBusy)
     }
 
+    @Test func failedRunWithBackgroundWorkIsNotWorking() {
+        // shellRuntime() doesn't park a failed run, so isThreadWorking() leaves it off the shelf.
+        let t = shell(["status": "failed", "latestRunId": "run-1", "latestRunCompletedAt": "2026-10-27T20:00:00.000Z",
+                       "pendingBackgroundTasks": [["kind": "subagent", "id": "n1"]]])
+        #expect(t.status == .failed)
+        #expect(!t.status.isBusy)
+    }
+
     @Test func settledPlanWithBackgroundWorkWaitsOnYou() {
         // isThreadWorking(): a settled plan run with an actionable plan is off the Working shelf,
         // even while background work it doesn't wait on is still going.
