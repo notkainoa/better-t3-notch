@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "T3Notch",
+    name: "BetterT3Notch",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "T3Notch",
-            path: "Sources/T3Notch",
+            name: "BetterT3Notch",
+            path: "Sources/BetterT3Notch",
             linkerSettings: [.linkedLibrary("sqlite3")] // EditStats: live +/- from T3's local store
         ),
         .testTarget(
-            name: "T3NotchTests",
-            dependencies: ["T3Notch"],
-            path: "Tests/T3NotchTests"
+            name: "BetterT3NotchTests",
+            dependencies: ["BetterT3Notch"],
+            path: "Tests/BetterT3NotchTests"
         ),
     ]
 )

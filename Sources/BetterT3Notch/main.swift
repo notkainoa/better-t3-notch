@@ -313,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "rectangle.topthird.inset.filled",
-                                           accessibilityDescription: "T3 Notch")
+                                           accessibilityDescription: "Better T3 Notch")
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -426,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         open.target = self
         menu.addItem(open)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit T3 Notch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Better T3 Notch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
     @objc private func openSettings() { settings.show() }

@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import T3Notch
+@testable import BetterT3Notch
 
 @Suite struct ThemeTests {
     @Test func snappyLiteralsAndOverlappingCopies() {

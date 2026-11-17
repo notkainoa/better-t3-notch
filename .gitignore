@@ -1,5 +1,6 @@
 .build/
 .swiftpm/
-T3Notch.app/
+BetterT3Notch.app/
 *.xcodeproj/
 .DS_Store
+.wrangler/

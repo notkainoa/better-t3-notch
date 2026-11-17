@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import T3Notch
+@testable import BetterT3Notch
 
 @Suite struct WireTests {
     private func parse(_ message: [String: Any]) -> [StreamValue] {

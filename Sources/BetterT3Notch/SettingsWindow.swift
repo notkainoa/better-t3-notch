@@ -64,7 +64,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let window = SettingsWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.toolbarStyle = .preference
-        window.title = "T3 Notch Settings"
+        window.title = "Better T3 Notch Settings"
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -296,7 +296,7 @@ final class GeneralPane: SettingsPane {
             toggle("Launch at login", get: { SMAppService.mainApp.status == .enabled }, set: { [unowned self] _ in
                 host.toggleLaunchAtLogin()
             }),
-            button("Waiting for approval", "Allow T3 Notch under Login Items in System Settings.",
+            button("Waiting for approval", "Allow Better T3 Notch under Login Items in System Settings.",
                    label: { "Open System Settings" }, visible: { SMAppService.mainApp.status == .requiresApproval },
                    action: { SMAppService.openSystemSettingsLoginItems() }),
         ])

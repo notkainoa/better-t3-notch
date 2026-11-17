@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import T3Notch
+@testable import BetterT3Notch
 
 /// The notch's status must match T3's sidebar pill (`resolveThreadStatusPill` in
 /// t3code apps/web/src/components/Sidebar.logic.ts). These feed real wire-shaped
