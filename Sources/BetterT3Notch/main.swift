@@ -373,8 +373,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
     private var hotKey: HotKey?
 
     @discardableResult
-    private func registerShortcut(_ shortcut: Shortcut) -> Bool {
+    private func registerShortcut(_ shortcut: Shortcut?) -> Bool {
         hotKey = nil // let go of the old one first: the new one may be the same keys
+        guard let shortcut else { return true } // cleared: no shortcut at all
         hotKey = HotKey(shortcut) { [weak self] in self?.toggleKeyboardMode() }
         return hotKey != nil
     }
@@ -385,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         store.watchOutput(of: controllers.lazy.compactMap(\.peekRow).first)
     }
 
-    /// The keyboard shortcut (⌘⇧Space unless changed in Settings): open the notch under the mouse (or the first one), or close it.
+    /// The keyboard shortcut (⇧⌘Space unless changed or cleared in Settings): open the notch under the mouse (or the first one), or close it.
     private func toggleKeyboardMode() {
         if let focused = controllers.first(where: \.isFocused) {
             focused.unfocus()
@@ -454,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         controllers.forEach { $0.applyCaptureSetting() }
     }
 
-    func setShortcut(_ shortcut: Shortcut) -> Bool {
+    func setShortcut(_ shortcut: Shortcut?) -> Bool {
         guard registerShortcut(shortcut) else {
             // Taken: keep the old one, but stay out of the way while the recorder is still listening.
             if recordingShortcut { hotKey = nil } else { registerShortcut(Shortcut.saved) }

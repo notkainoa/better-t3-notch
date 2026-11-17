@@ -9,8 +9,8 @@ protocol SettingsHost: AnyObject {
     func displayChanged()
     func captureChanged()
     func panelsNeedRebuild()
-    /// Registers a new global shortcut; false if macOS refuses it.
-    func setShortcut(_ shortcut: Shortcut) -> Bool
+    /// Registers a new global shortcut (nil: none); false if macOS refuses it.
+    func setShortcut(_ shortcut: Shortcut?) -> Bool
     func shortcutRecording(_ recording: Bool)
     func toggleLaunchAtLogin()
     func openT3()
@@ -326,7 +326,7 @@ final class GeneralPane: SettingsPane {
             }),
             toggle("Open on hover", "Off: click the notch to open the list.",
                    get: { Settings.openOnHover }, set: { Settings.openOnHover = $0 }),
-            shortcut("Open from the keyboard", "Click it, then press the keys you want. Esc cancels."),
+            shortcut("Open from the keyboard", "Click it, then press the keys you want. ⌫ clears it, Esc cancels."),
         ])
 
         section("Privacy", [

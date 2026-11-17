@@ -10,18 +10,21 @@ struct Shortcut: Equatable {
 
     private static let key = "openShortcut"
 
-    static var saved: Shortcut {
+    /// nil: cleared in Settings, no shortcut at all.
+    static var saved: Shortcut? {
         get {
-            guard let dict = UserDefaults.standard.dictionary(forKey: key),
-                  let code = dict["keyCode"] as? Int, let mods = dict["modifiers"] as? UInt
-            else { return .standard }
+            guard let dict = UserDefaults.standard.dictionary(forKey: key) else { return .standard }
+            if dict["none"] as? Bool == true { return nil }
+            guard let code = dict["keyCode"] as? Int, let mods = dict["modifiers"] as? UInt else { return .standard }
             return Shortcut(keyCode: UInt16(code), modifiers: NSEvent.ModifierFlags(rawValue: mods).intersection(.relevant))
         }
         set {
-            if newValue == .standard {
+            if let newValue, newValue == .standard {
                 UserDefaults.standard.removeObject(forKey: key)
-            } else {
+            } else if let newValue {
                 UserDefaults.standard.set(["keyCode": Int(newValue.keyCode), "modifiers": newValue.modifiers.rawValue], forKey: key)
+            } else {
+                UserDefaults.standard.set(["none": true], forKey: key)
             }
         }
     }
@@ -115,12 +118,13 @@ extension NSEvent.ModifierFlags {
 @MainActor
 final class ShortcutRecorder: NSView {
     /// Return false to reject (registering failed); the recorder shakes and keeps the old one.
-    var onChange: ((Shortcut) -> Bool)?
+    var onChange: ((Shortcut?) -> Bool)?
     /// Recording started (true) or ended (false): the live hotkey steps aside meanwhile.
     var onRecording: ((Bool) -> Void)?
 
-    var shortcut: Shortcut = .standard {
-        didSet { if !isRecording && oldValue != shortcut { showCaps(shortcut.keyLabels, animated: false) } }
+    /// nil: no shortcut (⌫ while recording clears it).
+    var shortcut: Shortcut? = .standard {
+        didSet { if !isRecording && oldValue != shortcut { showCurrent(animated: false) } }
     }
 
     private(set) var isRecording = false {
@@ -158,7 +162,7 @@ final class ShortcutRecorder: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel("Keyboard shortcut")
         toolTip = "Click, then press a new shortcut"
-        showCaps(shortcut.keyLabels, animated: false)
+        showCurrent(animated: false)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -169,7 +173,7 @@ final class ShortcutRecorder: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var isFlipped: Bool { false }
 
-    override func accessibilityValue() -> Any? { isRecording ? "Recording" : shortcut.displayString }
+    override func accessibilityValue() -> Any? { isRecording ? "Recording" : shortcut?.displayString ?? "None" }
     override func accessibilityPerformPress() -> Bool { startRecording(); return true }
 
     // MARK: Layout & colors
@@ -307,7 +311,7 @@ final class ShortcutRecorder: NSView {
             let mods = event.modifierFlags.intersection(.relevant)
             if mods.isEmpty, event.keyCode == UInt16(kVK_Escape) { cancel(); return true }
             if mods.isEmpty, event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) {
-                commit(.standard) // ⌫ puts the default back
+                commit(nil) // ⌫ clears it
                 return true
             }
             let candidate = Shortcut(keyCode: event.keyCode, modifiers: mods)
@@ -328,18 +332,18 @@ final class ShortcutRecorder: NSView {
 
     private func cancel(resigning: Bool = false) {
         stopRecording(resigning: resigning)
-        showCaps(shortcut.keyLabels, animated: true)
+        showCurrent(animated: true)
     }
 
-    private func commit(_ candidate: Shortcut) {
+    private func commit(_ candidate: Shortcut?) {
         if candidate != shortcut, onChange?(candidate) == false {
             reject("Can't use that one")
             return
         }
         shortcut = candidate // while still recording, so didSet leaves the caps to us
         stopRecording()
-        showCaps(candidate.keyLabels, animated: true)
-        flashSuccess()
+        showCurrent(animated: true)
+        if candidate != nil { flashSuccess() }
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
     }
 
@@ -350,7 +354,7 @@ final class ShortcutRecorder: NSView {
         messageTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, !self.isRecording else { return }
-                self.showCaps(self.shortcut.keyLabels, animated: true)
+                self.showCurrent(animated: true)
             }
         }
     }
@@ -392,6 +396,11 @@ final class ShortcutRecorder: NSView {
     }
 
     // MARK: Content
+
+    /// The saved shortcut as keycaps, or a quiet "No shortcut".
+    private func showCurrent(animated: Bool) {
+        if let shortcut { showCaps(shortcut.keyLabels, animated: animated) } else { showPrompt("No shortcut", tint: .tertiaryLabelColor) }
+    }
 
     private func showPrompt(_ text: String, tint: NSColor? = nil) {
         clearCaps(animated: true)
