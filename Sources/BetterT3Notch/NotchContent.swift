@@ -907,6 +907,12 @@ final class FinishedView: FlippedView {
         let drawn = shown == .completed || shown == .failed
         glyph.isHidden = drawn
         badge.isHidden = !drawn
+        if settling, !store.eventSettled {
+            // The same thread finished again in this card, and this finish doesn't settle.
+            settling = false
+            settledShown = false
+            badge.reset()
+        }
         if drawn { badge.draw(failed: shown == .failed) } else { glyph.show(shown, small: false) }
         title.stringValue = t.title
         if settledShown {
@@ -983,6 +989,18 @@ final class CheckBadge: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
+
+    /// Back to an undrawn check, so the next `draw` draws it fresh.
+    func reset() {
+        drawnFailed = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for l in [circle, mark, box] { l.removeAllAnimations() }
+        circle.opacity = 1
+        mark.opacity = 1
+        box.opacity = 0
+        CATransaction.commit()
+    }
 
     /// The check shrinks away and an archive box drops into its place with a small bounce.
     /// Waits for the check to finish drawing and sit for a beat; returns the delay until the
