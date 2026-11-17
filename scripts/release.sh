@@ -25,7 +25,12 @@ IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk '/"De
 STAGE=$(mktemp -d)
 ditto BetterT3Notch.app "$STAGE/Better T3 Notch.app"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -quiet -volname "Better T3 Notch" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov $DIST/$DMG_NAME
+# hdiutil sometimes fails with "Resource busy" on CI runners; a retry gets past it.
+for try in 1 2 3; do
+  hdiutil create -quiet -volname "Better T3 Notch" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov $DIST/$DMG_NAME && break
+  [[ $try == 3 ]] && exit 1
+  sleep 5
+done
 rm -rf "$STAGE"
 codesign --force --timestamp --sign "$IDENTITY" $DIST/$DMG_NAME
 
@@ -53,7 +58,8 @@ else
 fi
 NOTES=""
 if [[ -n "$RELEASE_NOTES_HTML" && -s "$RELEASE_NOTES_HTML" ]]; then
-  NOTES="<description><![CDATA[$(<$RELEASE_NOTES_HTML)]]></description>"
+  # A literal "]]>" in the notes would end the CDATA early; split it across two sections.
+  NOTES="<description><![CDATA[$(sed 's/]]>/]]]]><![CDATA[>/g' "$RELEASE_NOTES_HTML")]]></description>"
 fi
 cat > $DIST/appcast.xml <<XML
 <?xml version="1.0" encoding="utf-8"?>

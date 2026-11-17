@@ -79,7 +79,7 @@ The original build can't be re-run, so its numbers are the ones recorded at the 
 
 ## Install
 
-[Download the latest release](https://github.com/notkainoa/better-t3-notch/releases/latest/download/BetterT3Notch.dmg), open it, and drag Better T3 Notch into Applications. It's signed and notarized by Apple, and it updates itself (Settings → General → Updates).
+[Download the latest release](https://github.com/notkainoa/better-t3-notch/releases/latest/download/BetterT3Notch.dmg), open it, and drag Better T3 Notch into Applications. It's signed with a Developer ID and notarized by Apple, and it updates itself (Settings → General → Updates).
 
 You need macOS 14 or later (built and tested on macOS 26), and the [T3 Code](https://github.com/t3tools/t3code) desktop app running.
 

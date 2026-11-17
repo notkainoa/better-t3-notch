@@ -79,7 +79,12 @@ if [[ -n "$IDENTITY" ]]; then
   sign $SP/Updater.app
   sign $APP/Contents/Frameworks/Sparkle.framework
   sign $APP
-  echo "Signed with $(codesign -dvv $APP 2>&1 | awk -F= '/^Authority/ { print $2; exit }')"
+  SIGNER=$(codesign -dvv $APP 2>&1 | awk -F= '/^Authority/ { print $2; exit }')
+  echo "Signed with $SIGNER"
+  if [[ -n "$RELEASE" && "$SIGNER" != "Developer ID Application:"* ]]; then
+    echo "RELEASE=1 needs a Developer ID Application certificate, not $SIGNER" >&2
+    exit 1
+  fi
 else
   codesign --force --deep --sign - $APP >/dev/null
   echo "No signing certificate found; signed ad-hoc"

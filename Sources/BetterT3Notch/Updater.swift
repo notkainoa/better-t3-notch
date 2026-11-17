@@ -15,6 +15,9 @@ enum Updater {
     /// Starts the background schedule. Call once at launch.
     static func start() { _ = controller }
 
+    /// False while a check is already running.
+    static var canCheck: Bool { controller?.updater.canCheckForUpdates ?? false }
+
     static func checkNow() {
         NSApp.activate() // the update window is a normal window; an agent app has to come forward for it
         controller?.checkForUpdates(nil)

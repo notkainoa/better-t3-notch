@@ -2,11 +2,19 @@
 # Merging that PR tags a draft release; the build job then signs, notarizes and attaches the DMG
 # and Sparkle appcast, and only then publishes it, so download links never point at a release
 # without files. Run it by hand with a tag to rebuild an existing release.
+# PRs that touch the release machinery get a full dry run (signed, notarized, nothing published).
 name: Release
 
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - build.sh
+      - scripts/release.sh
+      - Package.swift
+      - Package.resolved
   workflow_dispatch:
     inputs:
       tag:
@@ -15,16 +23,18 @@ on:
 
 permissions:
   contents: write
+  issues: write
   pull-requests: write
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   release-please:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Runs queue rather than overlap. A newer run still creates a release whose PR an older,
+    # replaced run would have handled: release-please finds merged release PRs by their label.
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
     outputs:
       created: ${{ steps.rp.outputs.release_created }}
       tag: ${{ steps.rp.outputs.tag_name }}
@@ -35,12 +45,18 @@ jobs:
   build:
     needs: release-please
     if: >-
-      always() &&
-      (needs.release-please.outputs.created == 'true' || github.event_name == 'workflow_dispatch')
+      always() && (
+        needs.release-please.outputs.created == 'true' ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      )
     runs-on: macos-15
     timeout-minutes: 45
+    concurrency:
+      group: release-build-${{ needs.release-please.outputs.tag || inputs.tag || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
-      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
+      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }} # empty on a PR dry run
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
@@ -57,6 +73,11 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # The intermediates, in case the runner image lacks them: without one, codesign can't build the chain.
+          for ca in DeveloperIDCA DeveloperIDG2CA; do
+            curl -fsSL "https://www.apple.com/certificateauthority/$ca.cer" -o "$RUNNER_TEMP/$ca.cer"
+            security import "$RUNNER_TEMP/$ca.cer" -k "$KEYCHAIN" || true
+          done
           echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security import "$RUNNER_TEMP/cert.p12" -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
           rm "$RUNNER_TEMP/cert.p12"
@@ -73,11 +94,13 @@ jobs:
           printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle.key"
 
       - name: Make sure the release exists
+        if: env.TAG != ''
         run: |
           gh release view "$TAG" > /dev/null 2>&1 ||
             gh release create "$TAG" --draft --verify-tag --generate-notes --title "$TAG"
 
       - name: Release notes for the update window
+        if: env.TAG != ''
         run: |
           gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
           gh api markdown -f text="$(cat "$RUNNER_TEMP/notes.md")" -f mode=gfm -f context="$GITHUB_REPOSITORY" \
@@ -90,12 +113,28 @@ jobs:
           NOTARY_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           SPARKLE_KEY_FILE: ${{ runner.temp }}/sparkle.key
           RELEASE_NOTES_HTML: ${{ runner.temp }}/notes.html
-        run: VERSION="${TAG#v}" scripts/release.sh
+        run: |
+          if [[ -n "$TAG" ]]; then export VERSION="${TAG#v}"; fi
+          scripts/release.sh
+
+      - name: Keep the dry run's files
+        if: env.TAG == ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: BetterT3Notch-dry-run
+          path: dist/
+          retention-days: 7
 
       - name: Attach files and publish
+        if: env.TAG != ''
         run: |
           gh release upload "$TAG" dist/BetterT3Notch.dmg dist/appcast.xml --clobber
-          gh release edit "$TAG" --draft=false --latest
+          # Only the newest version becomes "latest": the download link and the update feed follow it,
+          # so rebuilding an older tag must not take it back.
+          CURRENT=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          NEWEST=$(printf '%s\n%s\n' "${CURRENT#v}" "${TAG#v}" | sed '/^$/d' | sort -V | tail -1)
+          if [[ -z "$CURRENT" || "$NEWEST" == "${TAG#v}" ]]; then LATEST=true; else LATEST=false; fi
+          gh release edit "$TAG" --draft=false --latest=$LATEST
 
       - name: Clean up
         if: always()

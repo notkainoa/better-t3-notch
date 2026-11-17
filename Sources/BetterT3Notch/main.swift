@@ -304,7 +304,7 @@ extension NSScreen {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SettingsHost {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation, SettingsHost {
     let store = ThreadStore()
     private var controllers: [NotchController] = []
     private var monitors: [Any] = []
@@ -443,6 +443,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
 
     @objc private func openSettings() { settings.show() }
     @objc private func checkForUpdates() { Updater.checkNow() }
+
+    // Greyed out while Sparkle can't start a check (one is already running), as Sparkle recommends.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        item.action == #selector(checkForUpdates) ? Updater.canCheck : true
+    }
 
 
     private func showSettings(from screen: NSScreen) {
