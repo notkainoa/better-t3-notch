@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="96" alt="Better T3 Notch icon">
+
 # Better T3 Notch
 
 A Dynamic Island–style notch for [T3 Code](https://github.com/t3tools/t3code) on macOS. See what your agents are doing, answer them, and stop them, without leaving the app you're in.
@@ -111,7 +113,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 
 - `scripts/screenshots.sh` regenerates `docs/screenshots/` (run it from an empty desktop).
 - `scripts/extract-logos.py /path/to/t3code` refreshes the provider logos from T3 Code's sources.
-- `scripts/make-icon.swift` regenerates the app icon.
+- `scripts/make-icon.swift` regenerates the app icon ("Midnight") and `docs/icon.png`.
 
 Better T3 Notch started as a fork of [t3code-notch](https://github.com/JosueRhea/t3code-notch) by Josue A.
 

@@ -1,6 +1,15 @@
-// Renders Resources/AppIcon.icns: a dark squircle with the notch and its three "working" dots.
-// Run: swift scripts/make-icon.swift   (needs iconutil, ships with macOS)
+// Renders Resources/AppIcon.icns ("Midnight"): a near-black squircle with a pixel-art notch whose
+// "working" dots glow in T3 Code's indigo.
+// Run: swift scripts/make-icon.swift [repo root]   (needs iconutil, ships with macOS)
+// Also writes docs/icon.png (1024px) for the README and site.
 import AppKit
+
+func color(_ hex: Int, _ alpha: CGFloat = 1) -> NSColor {
+    NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255,
+            blue: CGFloat(hex & 255) / 255, alpha: alpha)
+}
+
+let indigo = color(0x6B83FF)
 
 func render(_ px: Int) -> Data {
     let s = CGFloat(px)
@@ -10,41 +19,35 @@ func render(_ px: Int) -> Data {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-    // Body: macOS icon grid keeps ~10% margin; warm-to-dusk gradient like the wallpaper it sits on.
+    // Body: macOS icon grid keeps ~10% margin. T3's dark-mode near-black, a touch lighter at the top.
     let inset = s * 0.1
     let body = NSRect(x: inset, y: inset, width: s - inset * 2, height: s - inset * 2)
     let squircle = NSBezierPath(roundedRect: body, xRadius: body.width * 0.225, yRadius: body.width * 0.225)
-    NSGradient(colors: [NSColor(calibratedRed: 0.98, green: 0.58, blue: 0.38, alpha: 1),
-                        NSColor(calibratedRed: 0.42, green: 0.27, blue: 0.62, alpha: 1)])!
-        .draw(in: squircle, angle: -90)
-
-    // The notch: hangs from the top edge, flares at the top corners, rounded at the bottom.
-    NSGraphicsContext.current?.saveGraphicsState()
     squircle.addClip()
-    let w = body.width * 0.62, h = body.height * 0.26, t = body.width * 0.06, b = body.width * 0.1
-    let x0 = body.midX - w / 2, top = body.maxY, y1 = top - h
-    let notch = NSBezierPath()
-    notch.move(to: NSPoint(x: x0, y: top))
-    notch.curve(to: NSPoint(x: x0 + t, y: top - t), controlPoint1: NSPoint(x: x0 + t, y: top), controlPoint2: NSPoint(x: x0 + t, y: top))
-    notch.line(to: NSPoint(x: x0 + t, y: y1 + b))
-    notch.curve(to: NSPoint(x: x0 + t + b, y: y1), controlPoint1: NSPoint(x: x0 + t, y: y1), controlPoint2: NSPoint(x: x0 + t, y: y1))
-    notch.line(to: NSPoint(x: x0 + w - t - b, y: y1))
-    notch.curve(to: NSPoint(x: x0 + w - t, y: y1 + b), controlPoint1: NSPoint(x: x0 + w - t, y: y1), controlPoint2: NSPoint(x: x0 + w - t, y: y1))
-    notch.line(to: NSPoint(x: x0 + w - t, y: top - t))
-    notch.curve(to: NSPoint(x: x0 + w, y: top), controlPoint1: NSPoint(x: x0 + w - t, y: top), controlPoint2: NSPoint(x: x0 + w - t, y: top))
-    notch.close()
-    NSColor.black.setFill()
-    notch.fill()
+    NSGradient(colors: [color(0x1A1F2E), color(0x050608)])!.draw(in: squircle, angle: -90)
 
-    // Three dots mid-bounce.
-    let r = body.width * 0.035, gap = r * 3.2, cy = y1 + h * 0.42
-    let sky = NSColor(calibratedRed: 0.49, green: 0.83, blue: 0.99, alpha: 1)
-    for (i, lift) in [0.0, 0.6, 0.2].enumerated() {
-        let cx = body.midX + CGFloat(i - 1) * gap
-        sky.withAlphaComponent(0.55 + 0.45 * lift).setFill()
-        NSBezierPath(ovalIn: NSRect(x: cx - r, y: cy - r + CGFloat(lift) * r, width: r * 2, height: r * 2)).fill()
+    // Everything else sits on a 16×16 pixel grid; rows count down from the top.
+    let grid = 16, cell = body.width / CGFloat(grid)
+    func pixel(_ x: Int, _ y: Int, _ c: NSColor) {
+        c.setFill()
+        NSRect(x: body.minX + CGFloat(x) * cell, y: body.maxY - CGFloat(y + 1) * cell,
+               width: cell + 0.5, height: cell + 0.5).fill()
     }
-    NSGraphicsContext.current?.restoreGraphicsState()
+
+    // Indigo glow behind the notch.
+    let center = NSPoint(x: body.midX, y: body.maxY - 2.5 * cell)
+    NSGradient(colors: [indigo.withAlphaComponent(0.30), indigo.withAlphaComponent(0)])!
+        .draw(fromCenter: center, radius: 0, toCenter: center, radius: body.width * 0.42, options: [])
+
+    // The notch: stepped like pixel art, wider at the top edge.
+    let rows = [(2, 13), (3, 12), (3, 12), (3, 12), (4, 11)]
+    for (y, span) in rows.enumerated() { for x in span.0...span.1 { pixel(x, y, .black) } }
+
+    // The working dots, mid-sweep.
+    pixel(5, 2, indigo.withAlphaComponent(0.45))
+    pixel(7, 2, indigo)
+    pixel(8, 2, indigo)
+    pixel(10, 2, indigo.withAlphaComponent(0.7))
 
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
@@ -63,5 +66,5 @@ let p = Process()
 p.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 p.arguments = ["-c", "icns", iconset.path, "-o", out.path]
 try p.run(); p.waitUntilExit()
-try render(512).write(to: FileManager.default.temporaryDirectory.appendingPathComponent("AppIcon-preview.png"))
-print(p.terminationStatus == 0 ? "Wrote \(out.path)" : "iconutil failed")
+try render(1024).write(to: root.appendingPathComponent("docs/icon.png"))
+print(p.terminationStatus == 0 ? "Wrote \(out.path) and docs/icon.png" : "iconutil failed")
