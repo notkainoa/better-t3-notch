@@ -897,18 +897,52 @@ final class FinishedView: FlippedView {
         if let t = thread { store.open(t) }
     }
 
+    /// Settled: the check turns into a box, and "Done" into "Settled", once.
+    private var settling = false
+    private var settledShown = false
+
     func configure(_ t: T3Thread) {
         thread = t
         let shown: ThreadStatus = t.status == .idle ? .completed : t.status
         let drawn = shown == .completed || shown == .failed
         glyph.isHidden = drawn
         badge.isHidden = !drawn
+        if settling, !store.eventSettled {
+            // The same thread finished again in this card, and this finish doesn't settle.
+            settling = false
+            settledShown = false
+            badge.reset()
+        }
         if drawn { badge.draw(failed: shown == .failed) } else { glyph.show(shown, small: false) }
         title.stringValue = t.title
-        status.stringValue = t.status == .idle ? "Done" : t.status.label
-        status.textColor = t.status == .idle ? NSColor.white.withAlphaComponent(0.5) : t.status.color
+        if settledShown {
+            status.stringValue = "Settled"
+            status.textColor = NSColor.white.withAlphaComponent(0.5)
+        } else {
+            status.stringValue = t.status == .idle ? "Done" : t.status.label
+            status.textColor = t.status == .idle ? NSColor.white.withAlphaComponent(0.5) : t.status.color
+        }
         message.stringValue = Layout.finishedText(t)
+        if store.eventSettled, !settling { settle() } // the store closes this card early
         needsLayout = true
+    }
+
+    /// Put away in T3 (an agent merged its own PR): after the check has had its moment, it
+    /// drops into a box, and the label crossfades to "Settled".
+    private func settle() {
+        settling = true
+        let delay = badge.settle()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, self.store.eventSettled else { return }
+            self.settledShown = true
+            self.status.wantsLayer = true
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = 0.25
+            self.status.layer?.add(fade, forKey: "settle")
+            if let t = self.thread { self.configure(t) }
+        }
     }
 
     override func layout() {
@@ -931,7 +965,11 @@ final class FinishedView: FlippedView {
 final class CheckBadge: NSView {
     private let circle = CAShapeLayer()
     private let mark = CAShapeLayer()
+    private let box = CALayer()
     private var drawnFailed: Bool?
+    private var drawnAt: CFTimeInterval = 0
+    /// From the check starting to draw to the box dropping in. The store times the card by it.
+    static let settleSwap = 1.15 + 0.12
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -943,11 +981,85 @@ final class CheckBadge: NSView {
             l.lineJoin = .round
             layer?.addSublayer(l)
         }
+        box.opacity = 0
+        box.contentsGravity = .resizeAspect
+        layer?.addSublayer(box)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
+
+    /// Back to an undrawn check, so the next `draw` draws it fresh.
+    func reset() {
+        drawnFailed = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for l in [circle, mark, box] { l.removeAllAnimations() }
+        circle.opacity = 1
+        mark.opacity = 1
+        box.opacity = 0
+        CATransaction.commit()
+    }
+
+    /// The check shrinks away and an archive box drops into its place with a small bounce.
+    /// Waits for the check to finish drawing and sit for a beat; returns the delay until the
+    /// swap, so the label can change with it.
+    func settle() -> Double {
+        let now = CACurrentMediaTime()
+        let at = max(now + 0.05, drawnAt + Self.settleSwap - 0.12)
+        let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if let image = NSImage(systemSymbolName: "archivebox.fill", accessibilityDescription: "Settled")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+                .applying(.init(paletteColors: [NSColor.white.withAlphaComponent(0.75)]))) {
+            let scale = window?.backingScaleFactor ?? 2
+            box.contents = image.layerContents(forContentsScale: scale)
+            box.contentsScale = scale
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for l in [circle, mark] { l.opacity = 0 }
+        box.opacity = 1
+        CATransaction.commit()
+
+        let out = CAAnimationGroup()
+        let shrink = CABasicAnimation(keyPath: "transform.scale")
+        shrink.fromValue = 1; shrink.toValue = reduce ? 1 : 0.5
+        let fadeOut = CABasicAnimation(keyPath: "opacity")
+        fadeOut.fromValue = 1; fadeOut.toValue = 0
+        out.animations = [shrink, fadeOut]
+        out.duration = 0.18
+        shrink.duration = out.duration
+        fadeOut.duration = out.duration
+        out.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        out.beginTime = at
+        out.fillMode = .backwards
+        for l in [circle, mark] { l.add(out, forKey: "settle") }
+
+        let fadeIn = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue = 0; fadeIn.toValue = 1
+        fadeIn.duration = 0.14
+        var group: [CAAnimation] = [fadeIn]
+        if !reduce {
+            // Falls in from above and lands with a little squash, like it's been dropped in.
+            let drop = CASpringAnimation(keyPath: "transform.translation.y")
+            drop.fromValue = -7; drop.toValue = 0
+            drop.mass = 1; drop.stiffness = 420; drop.damping = 15
+            drop.duration = drop.settlingDuration
+            let squash = CAKeyframeAnimation(keyPath: "transform.scale.y")
+            squash.values = [1.1, 1.1, 0.86, 1.04, 1]
+            squash.keyTimes = [0, 0.3, 0.45, 0.7, 1]
+            squash.duration = 0.45
+            group += [drop, squash]
+        }
+        let into = CAAnimationGroup()
+        into.animations = group
+        into.duration = group.map { $0.duration }.max() ?? 0.14
+        into.beginTime = at + 0.12
+        into.fillMode = .backwards
+        box.add(into, forKey: "settle")
+        return at + 0.12 - now
+    }
 
     func draw(failed: Bool) {
         guard drawnFailed != failed else { return }
@@ -956,6 +1068,7 @@ final class CheckBadge: NSView {
         layoutSubtreeIfNeeded()
         let color = (failed ? ThreadStatus.failed : ThreadStatus.completed).color.cgColor
         let now = CACurrentMediaTime()
+        drawnAt = now
         for (l, delay, duration) in [(circle, 0.1, 0.38), (mark, 0.38, 0.26)] {
             l.strokeColor = color
             let a = CABasicAnimation(keyPath: "strokeEnd")
@@ -976,6 +1089,7 @@ final class CheckBadge: NSView {
         CATransaction.setDisableActions(true)
         circle.frame = bounds
         mark.frame = bounds
+        box.frame = bounds.insetBy(dx: 0, dy: 1)
         // Start at the top and go clockwise, like a ring filling up.
         let ring = CGMutablePath()
         ring.addArc(center: CGPoint(x: b.midX, y: b.midY), radius: b.width / 2,
