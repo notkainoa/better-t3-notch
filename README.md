@@ -113,7 +113,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 | `T3NOTCH_FORCE_EXPANDED=1` | keep the list open |
 | `T3NOTCH_RUNTIME_FILE=path` | read the server address from another file |
 
-- `scripts/screenshots.sh` regenerates `docs/screenshots/` (run it from an empty desktop).
+- `scripts/screenshots.sh` regenerates `docs/screenshots/` and the website's screenshots from demo data (it captures only the notch's window; needs Pillow).
 - `scripts/extract-logos.py /path/to/t3code` refreshes the provider logos from T3 Code's sources.
 - `scripts/make-icon.swift` regenerates the app icon ("Midnight") and `docs/icon.png`.
 - `site/` is the website. Cloudflare Pages deploys it: pushes to `main` update production, and PRs that touch `site/` get a preview link.

@@ -20,85 +20,112 @@
 :root{
   --bg:#050608; --bg-2:#0c0f17; --panel:#10131d; --line:#1d2233;
   --text:#eef0f6; --muted:#9aa1b5; --dim:#7f879e;
-  --indigo:#6b83ff; --indigo-2:#8ea0ff; --sky:#7cd3fc; --amber:#ffc773; --green:#5bd99b; --red:#ff7a7a;
+  --indigo:#6b83ff; --indigo-2:#8ea0ff; --sky:#7cd3fc; --amber:#fcd44d; --green:#6ee8b8; --red:#fca6a6; --violet:#c4b5fd;
   --radius:18px;
   --sans:"Geist",ui-sans-serif,system-ui,-apple-system,sans-serif;
   --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --pixel:"Silkscreen",var(--mono);
+  --rounded:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"Geist",sans-serif;
+  --spring:cubic-bezier(.34,1.32,.52,1);
 }
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
 a{color:inherit}
 img{max-width:100%;height:auto;display:block}
-.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
 .eyebrow{font:12px/1 var(--pixel);letter-spacing:.06em;color:var(--indigo-2);text-transform:uppercase}
 h1,h2,h3{margin:0;letter-spacing:-.02em;line-height:1.1}
-h2{font-size:clamp(28px,4.4vw,44px);font-weight:650}
+h2{font-size:clamp(28px,4.4vw,44px);font-weight:650;text-wrap:balance}
 p{margin:0}
-.lead{color:var(--muted);font-size:clamp(17px,2vw,20px);max-width:620px}
+.lead{color:var(--muted);font-size:clamp(17px,2vw,20px);max-width:620px;text-wrap:pretty}
 
-/* ---------- the live notch ---------- */
-.notch-stage{position:relative;height:0}
-.notch{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:20;
-  background:#000;color:#fff;border-radius:0 0 22px 22px;
-  height:38px;min-width:220px;padding:0 18px;display:flex;align-items:center;gap:10px;
-  font:500 14px/1 var(--sans);box-shadow:0 10px 40px -10px rgba(107,131,255,.35);
-  transition:min-width .5s cubic-bezier(.3,1.3,.5,1), box-shadow .4s}
-.notch::before,.notch::after{content:"";position:absolute;top:0;width:12px;height:12px;background:radial-gradient(circle at 0 100%,transparent 11.5px,#000 12px)}
-.notch::before{left:-12px;transform:scaleX(-1)}
-.notch::after{right:-12px}
-.notch .slot{display:flex;align-items:center;gap:8px;white-space:nowrap}
-.notch .msg{display:inline-block;transition:opacity .25s, transform .35s cubic-bezier(.3,1.3,.5,1)}
-.notch .msg.out{opacity:0;transform:translateY(-8px)}
-.dots{display:inline-flex;gap:4px}
-.dots i{width:6px;height:6px;background:var(--indigo);border-radius:1px;animation:sweep 1.2s infinite steps(1)}
-.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}
-@keyframes sweep{0%{opacity:1}33%{opacity:.45}66%{opacity:.7}}
-.ico{width:18px;height:18px;border-radius:50%;display:inline-grid;place-items:center;font:700 11px/1 var(--sans);color:#000;flex:none}
-.ico.q{background:var(--amber)} .ico.ok{background:var(--green)} .ico.x{background:var(--red)}
+/* ---------- the notch: the same shape and parts as the app's closed notch ---------- */
+/* Black, flush with the top edge, its top corners flaring outward and its bottom rounded.
+   Icons sit in the left wing, words in the right one, the camera between them. */
+.notch{--h:34px;--cam:188px;--wing:84px;position:relative;display:inline-block;height:var(--h);color:#fff;
+  font:600 14px/1 var(--rounded);letter-spacing:-.005em}
+.notch::before,.notch::after{content:"";position:absolute;top:0;width:7px;height:7px;
+  background:radial-gradient(circle at 0 100%,transparent 6.5px,#000 7px)}
+.notch::before{left:-7px;transform:scaleX(-1)}
+.notch::after{right:-7px}
+.notch .body{position:relative;height:100%;display:flex;align-items:center;overflow:hidden;
+  background:linear-gradient(#000,#0b0b0d);border-radius:0 0 13px 13px;
+  transition:box-shadow .5s ease}
+/* 1px inner rim, invisible against the screen edge and fading in toward the bottom */
+.notch .body::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  border:1px solid rgba(255,255,255,.13);border-top:0;
+  -webkit-mask-image:linear-gradient(transparent 30%,#000 85%);mask-image:linear-gradient(transparent 30%,#000 85%)}
+.notch .wing{position:relative;width:calc(var(--wing) + 14px);height:100%;flex:none;
+  transition:width .5s var(--spring)}
+.notch .cam{width:var(--cam);flex:none}
+.notch .icons{position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;gap:4px;transition:opacity .2s}
+.notch .words{position:absolute;right:14px;top:0;height:100%;display:flex;align-items:center;white-space:nowrap}
+.notch .words span{display:block;transition:transform .45s var(--spring),opacity .25s}
+.notch .words span.up{transform:translateY(-110%);opacity:0}
+.notch .words span.down{transform:translateY(110%);opacity:0}
+.notch .sweep{position:absolute;left:0;bottom:0;width:120px;height:2px;opacity:0;
+  background:linear-gradient(90deg,transparent,var(--green),transparent)}
+.notch.flash .sweep{animation:sweep 1s ease-out}
+@keyframes sweep{0%{transform:translateX(-120px);opacity:1}100%{transform:translateX(600px);opacity:0}}
+.notch.flash .body{box-shadow:0 6px 26px -4px rgba(110,232,184,.55)}
 .notch.wiggle{animation:wiggle .5s}
-@keyframes wiggle{20%{transform:translateX(calc(-50% - 4px))}40%{transform:translateX(calc(-50% + 4px))}60%{transform:translateX(calc(-50% - 2px))}80%{transform:translateX(calc(-50% + 2px))}}
-.notch.flash{box-shadow:0 10px 40px -6px rgba(91,217,155,.55)}
+@keyframes wiggle{20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
+
+.ic{width:17px;height:17px;flex:none;display:block}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.notch-fixed{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:20}
+.notch-fixed .notch{filter:drop-shadow(0 10px 28px rgba(0,0,0,.6))}
+
+/* closed notch on a screen without a camera: icons left, words right, no gap */
+.notch.flat .body{padding:0 14px;gap:10px;min-width:150px;justify-content:space-between}
+.notch.flat .icons,.notch.flat .words{position:static;transform:none}
 
 /* ---------- hero ---------- */
-.hero{position:relative;padding:120px 0 64px;text-align:center;isolation:isolate}
-.hero::before{content:"";position:absolute;inset:-10% -20% auto;height:640px;z-index:-1;
-  background:radial-gradient(50% 55% at 50% 0%,rgba(107,131,255,.28),transparent 70%)}
+.hero{position:relative;padding:116px 0 88px;isolation:isolate;overflow-x:clip}
+.hero::before{content:"";position:absolute;inset:-10% -20% auto;height:720px;z-index:-1;
+  background:radial-gradient(42% 55% at 70% 10%,rgba(107,131,255,.26),transparent 70%),
+             radial-gradient(30% 40% at 15% 0%,rgba(124,211,252,.08),transparent 70%)}
 .hero::after{content:"";position:absolute;inset:0;z-index:-1;opacity:.5;
   background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
-  background-size:32px 32px;mask-image:radial-gradient(60% 60% at 50% 20%,#000,transparent)}
-.app-icon{width:112px;height:112px;margin:0 auto 26px;filter:drop-shadow(0 18px 40px rgba(107,131,255,.25))}
-.hero h1{font-size:clamp(42px,8vw,84px);font-weight:700;letter-spacing:-.04em}
+  background-size:32px 32px;-webkit-mask-image:radial-gradient(60% 60% at 60% 20%,#000,transparent);mask-image:radial-gradient(60% 60% at 60% 20%,#000,transparent)}
+.hero-grid{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:56px;align-items:center}
+.app-icon{width:76px;height:76px;margin:0 0 24px -6px;filter:drop-shadow(0 14px 30px rgba(107,131,255,.25))}
+.hero h1{font-size:clamp(44px,6.4vw,76px);font-weight:700;letter-spacing:-.04em;line-height:1.02}
 .hero h1 .b{color:var(--indigo-2)}
-.hero .lead{margin:20px auto 0}
-.ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:34px}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 20px;border-radius:12px;font-weight:600;font-size:15px;text-decoration:none;transition:transform .15s, background .15s, border-color .15s}
+.hero .lead{margin-top:20px}
+.ctas{display:flex;gap:12px;flex-wrap:wrap;margin-top:32px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 20px;border-radius:12px;font-weight:600;font-size:15px;text-decoration:none;transition:transform .15s, background .15s, border-color .15s;-webkit-tap-highlight-color:transparent}
 .btn:active{transform:scale(.97)}
 .btn.primary{background:var(--indigo);color:#060814}
-.btn.primary:hover{background:var(--indigo-2)}
 .btn.ghost{border:1px solid var(--line);background:rgba(255,255,255,.02)}
-.btn.ghost:hover{border-color:#2e3550}
-.btn svg{width:18px;height:18px}
+@media (hover:hover){
+  .btn.primary:hover{background:var(--indigo-2)}
+  .btn.ghost:hover{border-color:#2e3550}
+}
+.btn svg{width:18px;height:18px;flex:none}
 .meta{margin-top:18px;color:var(--dim);font-size:13px}
-.hero-shot{margin:64px auto 0;max-width:920px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
-  box-shadow:0 40px 120px -30px rgba(107,131,255,.35)}
+.hero-shot{border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
+  box-shadow:0 40px 120px -30px rgba(107,131,255,.4)}
 
 /* ---------- sections ---------- */
 section{padding:96px 0}
+.tight{padding-top:0}
 .sec-head{display:flex;flex-direction:column;gap:14px;margin-bottom:44px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .card .shot{border-bottom:1px solid var(--line)}
-.grid2 .card:not(.wide) .shot img{aspect-ratio:2/1;object-fit:cover;object-position:center top}
 .card .body{padding:22px 24px 24px}
 .card h3{font-size:19px;font-weight:600;margin-bottom:6px}
 .card p{color:var(--muted);font-size:15px}
 .card.wide{grid-column:1/-1}
 
 .states{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.state{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
-.state .mini{background:#000;border-radius:0 0 14px 14px;height:30px;display:flex;align-items:center;justify-content:center;gap:8px;font:500 13px var(--sans);margin:-18px auto 16px;width:max-content;padding:0 16px;min-width:140px}
+.state{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:0 18px 18px}
+.state .notch{display:flex;justify-content:center;margin:0 auto 18px;width:max-content}
+.state .notch .body{height:32px}
 .state b{display:block;font-size:15px;margin-bottom:4px}
 .state > span{color:var(--muted);font-size:14px}
 
@@ -107,72 +134,110 @@ section{padding:96px 0}
 .feat .k{font:11px/1 var(--pixel);color:var(--indigo-2);margin-bottom:14px;letter-spacing:.06em}
 .feat b{display:block;font-size:16px;margin-bottom:6px;font-weight:600}
 .feat p{color:var(--muted);font-size:14.5px}
-kbd{font:12px var(--mono);background:#1a1f2e;border:1px solid #2a3046;border-bottom-width:2px;border-radius:6px;padding:1px 6px;color:var(--text)}
+kbd{font:12px var(--mono);background:#1a1f2e;border:1px solid #2a3046;border-bottom-width:2px;border-radius:6px;padding:1px 6px;color:var(--text);white-space:nowrap}
 
 /* performance */
 .perf{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:26px}
-.stat .label{color:var(--muted);font-size:14px}
-.stat .nums{display:flex;align-items:baseline;gap:12px;margin:14px 0 18px;flex-wrap:wrap}
-.stat .before{font:500 20px var(--mono);color:var(--dim);text-decoration:line-through;text-decoration-color:rgba(255,122,122,.6)}
-.stat .after{font:600 44px/1 var(--mono);letter-spacing:-.03em;color:var(--text)}
-.bars{display:flex;flex-direction:column;gap:6px}
-.bar{height:8px;border-radius:4px;background:#1a1f2e;overflow:hidden}
-.bar i{display:block;height:100%;border-radius:4px}
-.bar.b i{background:#3a3f52}
-.bar.a i{background:var(--indigo)}
-.perf-note{color:var(--dim);font-size:14px;margin-top:22px;max-width:720px}
-.perf-note a{color:var(--muted)}
+.stat .num{display:block;font:600 44px/1 var(--mono);letter-spacing:-.03em;color:var(--text);margin-bottom:14px}
+.stat .num small{font-size:20px;color:var(--muted);margin-left:2px}
+.stat b{display:block;font-size:16px;font-weight:600;margin-bottom:4px}
+.stat p{color:var(--muted);font-size:14.5px}
 
 /* install */
-.install{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
-pre.term{margin:0;background:#000;border:1px solid var(--line);border-radius:var(--radius);padding:22px 24px;font:14px/1.9 var(--mono);color:#d7dbea;overflow-x:auto}
-pre.term .c{color:var(--dim)} pre.term .p{color:var(--indigo-2);user-select:none}
-.reqs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
-.reqs li{display:flex;gap:12px;color:var(--muted)}
-.reqs li::before{content:"";flex:none;width:8px;height:8px;margin-top:9px;background:var(--indigo)}
+.install{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:stretch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:28px;display:flex;flex-direction:column;gap:20px;min-width:0}
+.panel h3{font-size:21px;font-weight:600}
+.panel > p{color:var(--muted);font-size:15px}
+.download{background:radial-gradient(80% 90% at 0% 0%,rgba(107,131,255,.16),transparent 70%),var(--panel)}
+.download .btn{align-self:flex-start;padding:15px 22px;font-size:16px}
+.download .fine{color:var(--dim);font-size:13px;margin-top:-8px}
+pre.term{margin:0;background:#000;border:1px solid var(--line);border-radius:12px;padding:18px 20px;font:13.5px/1.9 var(--mono);color:#d7dbea;overflow-x:auto;-webkit-overflow-scrolling:touch}
+pre.term .c{color:var(--dim)} pre.term .p{color:var(--indigo-2);user-select:none;-webkit-user-select:none}
+.reqs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.reqs li{display:flex;gap:12px;color:var(--muted);font-size:15px}
+.reqs li::before{content:"";flex:none;width:7px;height:7px;margin-top:9px;background:var(--indigo)}
 .reqs b{color:var(--text);font-weight:600}
 
-footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--dim);font-size:14px}
-footer .row{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer{border-top:1px solid var(--line);padding:36px 0 calc(48px + env(safe-area-inset-bottom));color:var(--dim);font-size:14px}
+footer .row{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
 footer a{color:var(--muted)}
-footer p+p{margin-top:8px}
+footer p+p{margin-top:6px}
+.social{display:flex;gap:6px}
+.social a{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;color:var(--muted);transition:color .15s,background .15s}
+.social svg{width:20px;height:20px}
+@media (hover:hover){.social a:hover{color:var(--text);background:rgba(255,255,255,.05)}}
 
+@media (max-width:960px){
+  .hero{padding:104px 0 72px}
+  .hero-grid{grid-template-columns:1fr;gap:48px}
+  .hero .lead{max-width:560px}
+}
 @media (max-width:860px){
   .grid2,.install,.perf{grid-template-columns:1fr}
   .states{grid-template-columns:1fr 1fr}
   .features{grid-template-columns:1fr 1fr}
   section{padding:72px 0}
 }
-@media (max-width:520px){
+@media (max-width:560px){
   .wrap{padding:0 16px}
   .states,.features{grid-template-columns:1fr}
-  .notch{min-width:180px;font-size:13px}
-  .hero{padding-top:104px}
+  .hero{padding:92px 0 56px}
+  .app-icon{width:64px;height:64px;margin-bottom:20px}
+  .ctas .btn{flex:1 1 100%}
+  .download .btn{align-self:stretch}
+  .panel{padding:22px}
+  .card .body{padding:18px 20px 20px}
+  .stat{padding:22px}
+  pre.term{font-size:12.5px;padding:16px}
+  .notch-fixed .notch{--cam:118px;--h:32px;font-size:13px}
+}
+@media (max-width:360px){
+  .notch-fixed .notch{--cam:72px}
+}
+/* short screens (landscape phones, small laptop windows): less vertical padding */
+@media (max-height:560px) and (min-width:561px){
+  .hero{padding:80px 0 48px}
+  section{padding:56px 0}
 }
 @media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
   *{animation:none!important;transition:none!important}
 }
 </style>
 </head>
 <body>
 
-<div class="notch" id="notch" aria-hidden="true"><span class="slot"><span class="msg" id="msg"></span></span></div>
+<div class="notch-fixed" aria-hidden="true">
+  <div class="notch" id="notch">
+    <div class="body">
+      <div class="wing"><span class="icons" id="icons"></span></div>
+      <div class="cam"></div>
+      <div class="wing"><span class="words" id="words"><span>3 working</span></span></div>
+      <i class="sweep"></i>
+    </div>
+  </div>
+</div>
 
 <header class="hero">
-  <div class="wrap">
-    <img class="app-icon" src="assets/icon.png" alt="Better T3 Notch app icon" width="112" height="112">
-    <h1>Better T3 <span class="b">Notch</span></h1>
-    <p class="lead">A Dynamic Island for <a href="https://github.com/t3tools/t3code">T3 Code</a> on macOS. See what your agents are doing, answer them, and stop them, without leaving the app you're in.</p>
-    <div class="ctas">
-      <a class="btn primary" href="https://github.com/notkainoa/better-t3-notch">
-        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        Get it on GitHub
-      </a>
-      <a class="btn ghost" href="#install">Build from source</a>
+  <div class="wrap hero-grid">
+    <div>
+      <img class="app-icon" src="assets/icon.png" alt="Better T3 Notch app icon" width="76" height="76">
+      <h1>Better T3 <span class="b">Notch</span></h1>
+      <p class="lead">A Dynamic Island for <a href="https://github.com/t3tools/t3code">T3 Code</a> on macOS. See what your agents are doing, answer them, and stop them, without leaving the app you're in.</p>
+      <div class="ctas">
+        <a class="btn primary" href="/download">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+          Download for macOS
+        </a>
+        <a class="btn ghost" href="https://github.com/notkainoa/better-t3-notch">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+      <p class="meta">Free and open source · macOS 14+ · Under 1% CPU</p>
     </div>
-    <p class="meta">Free and open source · macOS 14+ · Under 1% CPU</p>
-    <div class="hero-shot"><img src="assets/expanded.jpg" alt="The open notch listing T3 Code threads with their branch, model, diff counts, PR status and current activity" width="1640" height="1040"></div>
+    <div class="hero-shot"><img src="assets/expanded.jpg" alt="The open notch listing the T3 Code threads waiting on you, with branch, model, PR status and diff counts, and how many are working, snoozed and settled at the bottom" width="1640" height="740" fetchpriority="high"></div>
   </div>
 </header>
 
@@ -185,24 +250,24 @@ footer p+p{margin-top:8px}
         <p class="lead">Closed, the notch shows either what needs you or how many agents are working. Anything waiting on you comes first.</p>
       </div>
       <div class="states">
-        <div class="state"><div class="mini"><span class="dots"><i></i><i></i><i></i></span>5 working</div><b>Working</b><span>Nothing's waiting on you, so you just see how many agents are running.</span></div>
-        <div class="state"><div class="mini"><span class="ico q">?</span>1 needs you</div><b>Needs you</b><span>A question, an approval or a guest message. It gives a little wiggle.</span></div>
-        <div class="state"><div class="mini"><span class="ico ok">✓</span>3 done</div><b>Done</b><span>It clears by itself once you've looked at the thread in T3 Code.</span></div>
-        <div class="state"><div class="mini"><span class="ico x">✕</span>1 failed</div><b>Failed</b><span>Follows T3's own read state, so it never nags you twice.</span></div>
+        <div class="state"><div class="notch flat" aria-hidden="true"><div class="body"><span class="icons" data-k="spin"></span><span class="words">5 working</span></div></div><b>Working</b><span>Nothing's waiting on you, so you just see how many agents are running.</span></div>
+        <div class="state"><div class="notch flat" aria-hidden="true"><div class="body"><span class="icons" data-k="q"></span><span class="words">1 needs you</span></div></div><b>Needs you</b><span>A question, an approval or a guest message. It gives a little wiggle.</span></div>
+        <div class="state"><div class="notch flat" aria-hidden="true"><div class="body"><span class="icons" data-k="done"></span><span class="words">3 done</span></div></div><b>Done</b><span>It clears by itself once you've looked at the thread in T3 Code.</span></div>
+        <div class="state"><div class="notch flat" aria-hidden="true"><div class="body"><span class="icons" data-k="plan failed"></span><span class="words">2 need you</span></div></div><b>More than one</b><span>Plans ready, failed runs and questions each bring their own icon.</span></div>
       </div>
     </div>
   </section>
 
-  <section style="padding-top:0">
+  <section class="tight">
     <div class="wrap">
       <div class="sec-head">
         <span class="eyebrow">Answer from the notch</span>
         <h2>When an agent needs you, you never switch apps.</h2>
       </div>
       <div class="grid2">
-        <div class="card"><div class="shot"><img src="assets/approval.jpg" alt="An approval card under the notch with Decline and Approve buttons" width="1640" height="460" loading="lazy"></div>
+        <div class="card"><div class="shot"><img src="assets/approval.jpg" alt="An approval card under the notch showing the command, why it needs a look, and Decline and Approve buttons" width="1640" height="450" loading="lazy"></div>
           <div class="body"><h3>Approve or decline</h3><p>See the exact command and why it needs a look. Approve with <kbd>A</kbd> and decline with <kbd>D</kbd>.</p></div></div>
-        <div class="card"><div class="shot"><img src="assets/question.jpg" alt="A question card under the notch with answer choices" width="1640" height="460" loading="lazy"></div>
+        <div class="card"><div class="shot"><img src="assets/question.jpg" alt="A question card under the notch with three answer choices" width="1640" height="450" loading="lazy"></div>
           <div class="body"><h3>Answer questions</h3><p>Tap an answer or press <kbd>1</kbd>–<kbd>9</kbd>. To reply in your own words or steer a running agent, press <kbd>R</kbd>.</p></div></div>
         <div class="card wide"><div class="shot"><img src="assets/finished.jpg" alt="A finished run's final message dropping down from the notch" width="1640" height="320" loading="lazy"></div>
           <div class="body"><h3>See it finish</h3><p>When a run ends, its final message drops down for a few seconds with a soft chime. It goes away once you've seen the thread in T3 Code, however you got there.</p></div></div>
@@ -210,7 +275,7 @@ footer p+p{margin-top:8px}
     </div>
   </section>
 
-  <section style="padding-top:0">
+  <section class="tight">
     <div class="wrap">
       <div class="sec-head">
         <span class="eyebrow">Everything else</span>
@@ -221,7 +286,7 @@ footer p+p{margin-top:8px}
         <div class="feat"><div class="k">02</div><b>Pixel logos</b><p>Claude, Codex, Cursor, Grok, opencode and more, each as pixel art with a radar sweep while it works.</p></div>
         <div class="feat"><div class="k">03</div><b>Live terminal</b><p>Hover a running command to watch its last lines stream in.</p></div>
         <div class="feat"><div class="k">04</div><b>PRs and limits</b><p>Branch, model, PR checks, review state and conflicts, plus a countdown until your usage limit resets.</p></div>
-        <div class="feat"><div class="k">05</div><b>Keyboard first</b><p><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd> opens it. Arrow keys select and <kbd>⏎</kbd> opens. <kbd>Esc</kbd> closes it.</p></div>
+        <div class="feat"><div class="k">05</div><b>Keyboard first</b><p><kbd>⌘</kbd><kbd>⇧</kbd><kbd>Space</kbd> opens it, or record your own shortcut. Arrow keys select, <kbd>⏎</kbd> opens and <kbd>Esc</kbd> closes it.</p></div>
         <div class="feat"><div class="k">06</div><b>Matches your theme</b><p>Follows T3's palette live: T3 Chat, Grove, Ocean, Ember and Iris.</p></div>
         <div class="feat"><div class="k">07</div><b>Cozy sounds</b><p>A soft chime when a run finishes and a wooden knock when an agent needs you. Each one can be turned off.</p></div>
         <div class="feat"><div class="k">08</div><b>Private by default</b><p>Hidden from screen sharing, recordings and screenshots.</p></div>
@@ -230,46 +295,51 @@ footer p+p{margin-top:8px}
     </div>
   </section>
 
-  <section style="padding-top:0">
+  <section class="tight">
     <div class="wrap">
       <div class="sec-head">
         <span class="eyebrow">Performance</span>
-        <h2>It's on screen all day, so it costs almost nothing.</h2>
-        <p class="lead">The first version was built in SwiftUI and used about 19% CPU while agents ran. Rebuilt on AppKit and Core Animation, it uses under 1%.</p>
+        <h2>It's fast.</h2>
+        <p class="lead">It's on screen all day, so it's built to cost almost nothing. You won't notice it's running.</p>
       </div>
       <div class="perf">
-        <div class="stat"><div class="label">Average CPU, 2 agents running</div>
-          <div class="nums"><span class="before">18.8%</span><span class="after">0.6%</span></div>
-          <div class="bars"><div class="bar b"><i style="width:100%"></i></div><div class="bar a"><i style="width:3.2%"></i></div></div></div>
-        <div class="stat"><div class="label">Wakeups per second</div>
-          <div class="nums"><span class="before">2,611</span><span class="after">58</span></div>
-          <div class="bars"><div class="bar b"><i style="width:100%"></i></div><div class="bar a"><i style="width:2.2%"></i></div></div></div>
-        <div class="stat"><div class="label">Memory over a minute</div>
-          <div class="nums"><span class="before">+3.8 MB</span><span class="after">0 MB</span></div>
-          <div class="bars"><div class="bar b"><i style="width:100%"></i></div><div class="bar a"><i style="width:1%"></i></div></div></div>
+        <div class="stat"><span class="num">&lt;1<small>%</small></span><b>CPU with agents running</b><p>About 0.6% on average while it streams updates from T3.</p></div>
+        <div class="stat"><span class="num">28<small>MB</small></span><b>Memory, and it stays there</b><p>No growth over time, however long you leave it open.</p></div>
+        <div class="stat"><span class="num">0</span><b>Frames drawn by the app</b><p>Native AppKit and Core Animation. macOS runs every spring and slide itself.</p></div>
       </div>
-      <p class="perf-note">Core Animation lets the window server run the springs, slides and rolling digits, so the app does no work per frame. The method and every step of the migration are in the <a href="https://github.com/notkainoa/better-t3-notch#performance">README</a>.</p>
     </div>
   </section>
 
-  <section id="install" style="padding-top:0">
+  <section id="install" class="tight">
     <div class="wrap">
       <div class="sec-head">
         <span class="eyebrow">Install</span>
-        <h2>Build it in a minute.</h2>
+        <h2>Get it on your Mac.</h2>
       </div>
       <div class="install">
-<pre class="term"><span class="c"># clone and build</span>
-<span class="p">$ </span>git clone https://github.com/notkainoa/better-t3-notch
+        <div class="panel download" id="download">
+          <h3>Download</h3>
+          <p>Grab the latest release, move it to Applications and open it. It finds T3 Code and connects on its own.</p>
+          <a class="btn primary" href="/download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+            Download for macOS
+          </a>
+          <p class="fine">Latest release on GitHub · Free and open source</p>
+          <ul class="reqs">
+            <li><span><b>macOS 14 or later.</b> It works with or without a camera notch.</span></li>
+            <li><span><b>T3 Code</b> desktop app, running. It finds the local server by itself.</span></li>
+            <li><span>On first launch it gets its own token from T3's CLI. Nothing to configure.</span></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Build from source</h3>
+          <p>You'll need the Xcode command-line tools (Swift 5.9 or later).</p>
+<pre class="term"><span class="p">$ </span>git clone \
+    https://github.com/notkainoa/better-t3-notch
 <span class="p">$ </span>cd better-t3-notch
 <span class="p">$ </span>./build.sh
 <span class="p">$ </span>open BetterT3Notch.app</pre>
-        <ul class="reqs">
-          <li><span><b>macOS 14 or later.</b> It works with or without a camera notch.</span></li>
-          <li><span><b>T3 Code</b> desktop app, running. It finds the local server on its own.</span></li>
-          <li><span><b>Xcode command-line tools</b> (Swift 5.9+) to build it.</span></li>
-          <li><span>On first launch it gets its own token from T3's CLI. Nothing to configure.</span></li>
-        </ul>
+        </div>
       </div>
     </div>
   </section>
@@ -278,36 +348,86 @@ footer p+p{margin-top:8px}
 <footer>
   <div class="wrap row">
     <div>
-      <p>Better T3 Notch by <a href="https://github.com/notkainoa">Kainoa Newton</a>. Started as a fork of <a href="https://github.com/JosueRhea/t3code-notch">t3code-notch</a> by Josue A.</p>
-      <p>Not affiliated with T3 Tools. Provider logos belong to their owners.</p>
+      <p>Better T3 Notch by <a href="https://kainoa.me">Kainoa Newton</a>. Forked from <a href="https://github.com/JosueRhea/t3code-notch">T3 Notch</a>.</p>
+      <p>Not affiliated with T3 Tools.</p>
     </div>
-    <div><a href="https://github.com/notkainoa/better-t3-notch">GitHub</a></div>
+    <nav class="social" aria-label="Links">
+      <a href="https://github.com/notkainoa/better-t3-notch" aria-label="GitHub" title="GitHub">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+      <a href="https://x.com/kainoabhn" aria-label="X" title="X">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.75 3h3.07l-6.7 7.66L22 21h-6.17l-4.83-6.32L5.47 21H2.4l7.17-8.2L2 3h6.33l4.37 5.77L17.75 3Zm-1.08 16.18h1.7L7.4 4.73H5.57l11.1 14.45Z"/></svg>
+      </a>
+      <a href="https://kainoa.me" aria-label="Website" title="kainoa.me">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></svg>
+      </a>
+    </nav>
   </div>
 </footer>
 
 <script>
-// The live notch: cycles through the states the real one shows.
 (() => {
-  const notch = document.getElementById('notch'), msg = document.getElementById('msg');
+  // The app's icons: a colored disc with the mark cut in black, and a ring with a turning arc.
+  const disc = (color, mark) => `<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7.5" fill="${color}"/>${mark}</svg>`;
+  const stroke = 'fill="none" stroke="#000" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
+  const ICONS = {
+    q: disc('var(--amber)', `<path d="M6.1 6.3a1.95 1.95 0 1 1 2.7 1.8c-.5.2-.8.6-.8 1.1v.3" ${stroke}/><circle cx="8" cy="11.7" r="1" fill="#000"/>`),
+    failed: disc('var(--red)', `<path d="M5.6 5.6l4.8 4.8m0-4.8-4.8 4.8" ${stroke}/>`),
+    done: disc('var(--green)', `<path d="M4.8 8.3l2.2 2.2 4.2-4.6" ${stroke}/>`),
+    plan: `<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="1.8" width="11" height="13.4" rx="2.2" fill="var(--violet)"/><rect x="5.5" y=".8" width="5" height="2.6" rx="1" fill="var(--violet)" stroke="#000" stroke-width=".8"/><path d="M5 6.6h6M5 9.1h6M5 11.6h6" stroke="#000" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+    spin: `<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--sky)" stroke-opacity=".25" stroke-width="2"/><g class="spin" style="transform-origin:8px 8px"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--sky)" stroke-width="2" stroke-linecap="round" stroke-dasharray="11.3 40" transform="rotate(-90 8 8)"/></g></svg>`,
+  };
+  const icons = kinds => kinds.map(k => ICONS[k]).join('');
+  document.querySelectorAll('[data-k]').forEach(el => { el.innerHTML = icons(el.dataset.k.split(' ')); });
+
+  // The live notch at the top: cycles through what the real one says.
+  const notch = document.getElementById('notch');
+  const iconBox = document.getElementById('icons'), words = document.getElementById('words');
   const states = [
-    { html: '<span class="dots"><i></i><i></i><i></i></span> 3 working', w: 180 },
-    { html: '<span class="ico q">?</span> 1 needs you', w: 200, fx: 'wiggle' },
-    { html: '<span class="dots"><i></i><i></i><i></i></span> 2 working', w: 180 },
-    { html: '<span class="ico ok">✓</span> 1 done', w: 170, fx: 'flash' },
+    { kinds: ['spin'], text: '3 working', n: 3 },
+    { kinds: ['q'], text: '1 needs you', n: 1, fx: 'wiggle' },
+    { kinds: ['spin'], text: '2 working', n: 2 },
+    { kinds: ['done'], text: '1 done', n: 1, fx: 'flash' },
+    { kinds: ['q', 'done'], text: '2 need you', n: 2, fx: 'wiggle' },
+    { kinds: ['spin'], text: '1 working', n: 1 },
   ];
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let i = 0;
-  function show(s) {
-    msg.classList.add('out');
-    setTimeout(() => {
-      msg.innerHTML = s.html; msg.classList.remove('out');
-      notch.style.minWidth = s.w + 40 + 'px';
-      notch.classList.remove('wiggle', 'flash');
-      if (s.fx) { void notch.offsetWidth; notch.classList.add(s.fx); }
-    }, reduce ? 0 : 220);
+  const ctx = document.createElement('canvas').getContext('2d');
+  // Both wings are as wide as the wider of the icons and the words, like the app.
+  function wingWidth(s) {
+    ctx.font = getComputedStyle(notch).font;
+    const text = Math.ceil(ctx.measureText(s.text).width) + 2;
+    const n = s.kinds.length;
+    return Math.max(n * 17 + (n - 1) * 4, text);
   }
-  msg.innerHTML = states[0].html;
-  if (!reduce) setInterval(() => { i = (i + 1) % states.length; show(states[i]); }, 2600);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let i = 0, prev = states[0];
+  function apply(s, animate) {
+    notch.style.setProperty('--wing', wingWidth(s) + 'px');
+    if (!animate) { iconBox.innerHTML = icons(s.kinds); words.firstElementChild.textContent = s.text; return; }
+    // The count rolls: up when it grows, down when it shrinks. The icons cross-fade.
+    const old = words.firstElementChild, next = document.createElement('span');
+    const up = s.n >= prev.n;
+    next.textContent = s.text; next.className = up ? 'down' : 'up';
+    old.className = up ? 'up' : 'down';
+    old.style.position = 'absolute'; old.style.right = '0';
+    words.appendChild(next);
+    requestAnimationFrame(() => requestAnimationFrame(() => { next.className = ''; }));
+    setTimeout(() => old.remove(), 450);
+    if (s.kinds.join() !== prev.kinds.join()) {
+      iconBox.style.opacity = 0;
+      setTimeout(() => { iconBox.innerHTML = icons(s.kinds); iconBox.style.opacity = 1; }, 180);
+    }
+    notch.classList.remove('wiggle', 'flash');
+    if (s.fx) { void notch.offsetWidth; notch.classList.add(s.fx); }
+    prev = s;
+  }
+  apply(states[0], false);
+  document.fonts && document.fonts.ready.then(() => apply(prev, false));
+  addEventListener('resize', () => notch.style.setProperty('--wing', wingWidth(prev) + 'px'));
+  if (!reduce) setInterval(() => {
+    if (document.hidden) return;
+    i = (i + 1) % states.length; apply(states[i], true);
+  }, 2600);
 })();
 </script>
 </body>
