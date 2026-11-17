@@ -1334,6 +1334,14 @@ enum Settings {
     static func sound(_ e: SoundEvent) -> Bool { flag("sound." + e.rawValue, default: true) }
     static func setSound(_ e: SoundEvent, _ on: Bool) { UserDefaults.standard.set(on, forKey: "sound." + e.rawValue) }
 
+    /// When agents are working and something also waits on you, what's waiting sits on the
+    /// right (default: the spinner and "6 working" keep the left), or on the left.
+    private static let needsYouOnLeftKey = "needsYouOnLeft"
+    static var needsYouOnLeft: Bool {
+        get { UserDefaults.standard.object(forKey: needsYouOnLeftKey) as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: needsYouOnLeftKey) }
+    }
+
     private static let showModelKey = "showModel"
     static var showModel: Bool {
         get { UserDefaults.standard.bool(forKey: showModelKey) }
