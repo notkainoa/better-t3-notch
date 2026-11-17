@@ -313,11 +313,11 @@ final class NotificationsPane: SettingsPane {
     override func build() {
         section("Pop-ups", footer: "Turned-off pop-ups still show in the notch's count and list.", [
             toggle("When a run finishes", "Its final message drops down for a few seconds.",
-                   get: { Settings.popDone }, set: { Settings.popDone = $0 }),
+                   get: { Settings.popDone }, set: { [unowned self] in Settings.popDone = $0; host.store.popUpSettingsChanged() }),
             toggle("When a run fails", "The error drops down for a few seconds.",
-                   get: { Settings.popFailed }, set: { Settings.popFailed = $0 }),
+                   get: { Settings.popFailed }, set: { [unowned self] in Settings.popFailed = $0; host.store.popUpSettingsChanged() }),
             toggle("When an agent needs you", "The approval or question card stays down until you answer.",
-                   get: { Settings.popNeedsYou }, set: { Settings.popNeedsYou = $0 }),
+                   get: { Settings.popNeedsYou }, set: { [unowned self] in Settings.popNeedsYou = $0; host.store.popUpSettingsChanged() }),
         ])
 
         let sounds: [(Settings.SoundEvent, String, String?, Chime.Sound)] = [
@@ -354,6 +354,8 @@ final class AppearancePane: SettingsPane {
                 [("Match T3 Code (\(Theme.detected.label))", ThemeChoice.matchT3)]
                     + ([NotchTheme.classic] + NotchTheme.t3).map { ($0.label, ThemeChoice.fixed($0.id)) }
             }, get: { ThemeChoice.saved }, set: { choice in
+                // Saved now, so the popup's refresh shows it; applied after the popup's menu closes.
+                ThemeChoice.saved = choice
                 DispatchQueue.main.async { Theme.choose(choice) }
             }),
             toggle("Accent glow", "The open notch glows in the theme's accent color. Off: a plain dark shadow.",
