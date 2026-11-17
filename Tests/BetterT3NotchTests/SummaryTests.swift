@@ -80,6 +80,33 @@ import Testing
         #expect(shell(["settledOverride": "active"]).shelf(now: now) == .inbox)
     }
 
+    private func pr(_ state: String) -> [String: Any] {
+        ["pullRequests": [["number": 42, "url": "https://github.com/o/r/pull/42", "source": "agent",
+                           "snapshot": ["state": state]]]]
+    }
+
+    /// T3 settles a thread whose PR merged or closed without storing an override.
+    @Test func mergedOrClosedPRSettles() {
+        #expect(shell(pr("merged")).shelf(now: now) == .settled)
+        #expect(shell(pr("closed")).shelf(now: now) == .settled)
+        #expect(shell(pr("open")).shelf(now: now) == .inbox)
+    }
+
+    @Test func keepActiveAndPinsBeatAMergedPR() {
+        var active = pr("merged"); active["settledOverride"] = "active"
+        #expect(shell(active).shelf(now: now) == .inbox)
+        var pinned = pr("merged"); pinned["pinnedAt"] = "2026-11-16T09:00:00.000Z"
+        #expect(shell(pinned).shelf(now: now) == .inbox)
+    }
+
+    @Test func runningOrBlockedWorkNeverSettles() {
+        var running = pr("merged"); running["status"] = "running"; running["activityRunStatus"] = "running"
+        #expect(shell(running).shelf(now: now) == .inbox)
+        var asking = pr("merged"); asking["settledOverride"] = "settled"
+        asking["pendingRuntimeRequest"] = ["id": "r1", "kind": "command", "createdAt": "2026-11-16T11:30:00.000Z"]
+        #expect(shell(asking).shelf(now: now) == .inbox)
+    }
+
     @Test func snoozedUntilItsWakeTime() {
         #expect(shell(snoozed).shelf(now: now) == .snoozed)
         let later = ISO8601DateFormatter().date(from: "2026-11-16T16:00:00Z")!

@@ -62,6 +62,8 @@ struct T3Thread: Identifiable, Equatable {
     var linesAdded = 0
     var linesRemoved = 0
     var pr: PullRequestInfo?
+    /// On T3's settled shelf (put away by hand, or its PR merged or closed).
+    var settled = false
     /// Set when the provider's usage limit stopped the thread.
     var usageLimitResetAt: Date?
     var usageLimited = false
@@ -194,6 +196,9 @@ final class ThreadStore: ObservableObject {
     /// The receipt came while T3 Code was in the background (a thread left open there, or the
     /// phone): you haven't looked yet, so it goes when T3 Code comes to the front.
     private var eventReadAway = false
+    /// The finish's thread is settled (an agent that merges its own PR settles it as it ends):
+    /// the card files itself away and goes sooner.
+    private var eventSettled = false
     /// A finish while T3 Code is in front waits a beat for the receipt: you may be watching it.
     private var heldFinish: Task<Void, Never>?
     /// The held finish's thread, followed while it waits (an unvisited finish is no row).
@@ -308,6 +313,8 @@ final class ThreadStore: ObservableObject {
 
     func dismissEvent() {
         eventClearTask?.cancel()
+        eventClearTask = nil
+        eventSettled = false
         eventId = nil
         eventReadAfter = nil
         eventReadAway = false
@@ -580,6 +587,7 @@ final class ThreadStore: ObservableObject {
         let working = busy.sorted { started($0) != started($1) ? started($0) > started($1) : $0.id < $1.id }
         detectTransitions(awake)
         checkEventRead()
+        checkEventSettled()
         let listed = Array(inbox.prefix(Self.inboxCount))
         var visible = listed + working.prefix(Self.busyCount)
         // A pop-up's thread stays followed until it goes away, even if it's no row: a finish you
@@ -599,8 +607,10 @@ final class ThreadStore: ObservableObject {
             // Demo shows only fake threads, so screenshots never include real work.
             rows = Self.demo.threads
             summary = NotchSummary(snoozed: 2, settled: 14)
-            rows.forEach { summary.add($0.status) }
-            listedIds = Set(rows.filter { NotchSummary.kind(of: $0.status) != nil }.map(\.id))
+            let awake = rows.filter { !$0.settled } // settled demo rows count as settled, like real ones
+            summary.settled += rows.count - awake.count
+            awake.forEach { summary.add($0.status) }
+            listedIds = Set(awake.filter { NotchSummary.kind(of: $0.status) != nil }.map(\.id))
             // Once, through the live path: a finish goes back to the pill after 7s, a card can be put away.
             if let id = Self.demo.eventId, threads.isEmpty, let t = rows.first(where: { $0.id == id }) { showEvent(t) }
         }
@@ -616,6 +626,7 @@ final class ThreadStore: ObservableObject {
             model: s.model.map(Self.prettyModel), provider: s.provider, branch: s.branch, pullRequest: s.pullRequest
         )
         t.pr = s.pr
+        t.settled = s.settled
         if s.status == .waiting, s.runtimeStatus == "idle", let done = s.latestRunCompletedAt {
             t.startedAt = done // parked on background work: T3 counts from when the run finished
         }
@@ -739,7 +750,7 @@ final class ThreadStore: ObservableObject {
     }
 
     /// Fake threads for checking layouts without waiting for real events:
-    /// `T3NOTCH_DEMO=approval|question|finished|list` (list: PR markers, usage limit, every status),
+    /// `T3NOTCH_DEMO=approval|question|finished|settled|list` (list: PR markers, usage limit, every status),
     /// and one per pill message: `working|done|failed|plan|asked-done`.
     private static let demo: (threads: [T3Thread], eventId: String?) = {
         guard let mode = ProcessInfo.processInfo.environment["T3NOTCH_DEMO"] else { return ([], nil) }
@@ -771,6 +782,14 @@ final class ThreadStore: ObservableObject {
             t.lastMessage = "Done. CPU is down from 12–15% to under 1% while threads run, SwiftUI is gone, and the springs are back on Core Animation. 33 tests pass."
             t.activity = t.lastMessage
             t.linesAdded = 812; t.linesRemoved = 431
+            return ([t], "demo")
+        case "settled": // an agent merged its own PR, then finished
+            var t = make("demo", "Ship the notch performance pass", .completed)
+            t.lastMessage = "Merged #42. CPU is down from 12–15% to under 1% while threads run. 33 tests pass."
+            t.activity = t.lastMessage
+            t.pr = PullRequestInfo(number: 42, url: "", state: "merged", isDraft: false,
+                                   checks: .passing, review: .approved, conflicting: false)
+            t.settled = true
             return ([t], "demo")
         case "working":
             let ts = (1...5).map { i -> T3Thread in
@@ -993,11 +1012,42 @@ final class ThreadStore: ObservableObject {
 
     private func show(_ id: String, _ kind: EventKind, for seconds: Double?, readAfter: Date?) {
         eventKind = kind
-        eventClearTask?.cancel()
         cancelHeldFinish()
         eventId = id
         eventReadAfter = readAfter
         eventReadAway = false
+        eventShownAt = Date()
+        eventSettled = seconds != nil && settlesCard(id)
+        // Settled as it finished: the check, the box, then gone, without the full 7s.
+        clearEvent(after: eventSettled ? seconds.map { min($0, Self.settledCardSeconds) } : seconds)
+    }
+
+    /// The check draws and sits (~1.3s), turns into the box, then a short beat and gone.
+    static let settledCardSeconds = 2.4
+    /// Once the box is in: just long enough to see it land.
+    static let settledLinger = 1.1
+    private var eventShownAt = Date.distantPast
+
+    /// A finish card whose thread settles while it's up: it files itself away and goes early.
+    private func checkEventSettled() {
+        guard let id = eventId, !eventSettled, eventClearTask != nil, settlesCard(id) else { return }
+        log.notice("settled while shown: \(id, privacy: .public)")
+        eventSettled = true
+        // The swap waits for the check's moment if the card only just opened.
+        let untilSwap = max(0, 1.3 - Date().timeIntervalSince(eventShownAt))
+        clearEvent(after: untilSwap + Self.settledLinger)
+    }
+
+    /// Only a finish settles its card: a failure or a question still wants you.
+    private func settlesCard(_ id: String) -> Bool {
+        guard eventKind == .done || eventKind == .forced else { return false }
+        if let s = shell[id] { return s.settled && s.phase == .completed }
+        return Self.demo.threads.first { $0.id == id }.map { $0.settled && $0.status == .completed } ?? false
+    }
+
+    private func clearEvent(after seconds: Double?) {
+        eventClearTask?.cancel()
+        eventClearTask = nil
         guard let seconds else { return }
         eventClearTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
@@ -1175,7 +1225,10 @@ struct ShellThread: Sendable {
     let usageLimited: Bool
     let usageLimitResetAt: Date?
     /// T3's sidebar shelves: settled by the user or auto-settle, or snoozed until a time.
-    var settled = false
+    /// "settled" or "active" (the keep-active pin), or nil to let auto-settle decide.
+    var settledOverride: String?
+    /// Pinned threads never settle (they stay on top of T3's sidebar).
+    var pinned = false
     var snoozedUntil: Date?
     var snoozedAt: Date?
     var pendingKind: String?
@@ -1226,6 +1279,19 @@ struct ShellThread: Sendable {
     }
 
     enum Shelf: Sendable { case inbox, snoozed, settled }
+
+    /// `effectiveSettled` (threadSettled.ts): blocked or running work stays out; then the user's
+    /// override; then a merged or closed PR settles it. T3 works the PR rule out on the fly and
+    /// never stores it, so an agent that merges its own PR settles the thread with no override.
+    /// (T3's "settle after N days" setting lives in the app, out of the notch's reach.)
+    var settled: Bool {
+        if pinned { return false }
+        if hasPendingApprovals || hasPendingUserInput { return false }
+        if ["preparing", "starting", "running"].contains(runtimeStatus ?? "") { return false }
+        if settledOverride == "settled" { return true }
+        if settledOverride == "active" { return false }
+        return pr?.state == "merged" || pr?.state == "closed"
+    }
 
     /// Where T3's sidebar puts it: snoozed outranks settled, everything else is the inbox.
     func shelf(now: Date) -> Shelf {
@@ -1459,7 +1525,8 @@ enum Incoming: Sendable {
             usageLimited: status == "failed" && t["lastErrorClass"] as? String == "usage_limit",
             usageLimitResetAt: date(t["usageLimitResetAt"])
         )
-        thread.settled = t["settledOverride"] as? String == "settled"
+        thread.settledOverride = t["settledOverride"] as? String
+        thread.pinned = t["pinnedAt"] is String
         thread.snoozedUntil = date(t["snoozedUntil"])
         thread.snoozedAt = date(t["snoozedAt"])
         thread.pendingKind = pendingKind
