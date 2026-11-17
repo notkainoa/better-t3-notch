@@ -79,16 +79,6 @@ enum UI {
     }
 
     static func height(_ l: NSTextField) -> CGFloat { ceil(l.intrinsicContentSize.height) }
-
-    /// Digits rolling to a new value: spring push, run by the window server.
-    static func roll(up: Bool) -> CATransition {
-        let t = CATransition()
-        t.type = .push
-        t.subtype = up ? .fromTop : .fromBottom
-        t.duration = 0.35
-        t.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 1.3, 0.35, 1)
-        return t
-    }
 }
 
 /// Capsule button (approve, answers, "Answer in T3 Code", Stop). Closure-based.
@@ -186,6 +176,13 @@ final class ExpandedView: FlippedView {
     private let hints = KeyHintsView()
     private lazy var footer = ShelfFooter(model: model, store: store)
     private var clock: Timer?
+    /// Rows added since the last layout: they fade in where they land instead of sliding.
+    private var fresh: Set<String> = []
+    /// The first layout cascades the rows in; after that, rows slide to new places.
+    private var entered = false
+    private var replyFresh = false
+    /// The notch shape's damping, so rows and the footer move in step with its edge.
+    var damping: CGFloat = 0.78
 
     init(model: NotchModel, store: ThreadStore) {
         self.model = model
@@ -223,12 +220,16 @@ final class ExpandedView: FlippedView {
         // Rows: reuse by thread id.
         let threads = model.listThreads
         let ids = Set(threads.map(\.id))
-        for (id, row) in rows where !ids.contains(id) { row.removeFromSuperview(); rows[id] = nil }
+        for (id, row) in rows where !ids.contains(id) {
+            rows[id] = nil
+            Anim.exit(row, duration: 0.12) { row.removeFromSuperview() } // fades where it was while the rest close up
+        }
         for t in threads {
             let row = rows[t.id] ?? {
                 let r = ThreadRowView(model: model, store: store)
                 addSubview(r)
                 rows[t.id] = r
+                fresh.insert(t.id)
                 return r
             }()
             row.configure(t, selected: model.keyboard && model.selectedThread?.id == t.id)
@@ -246,13 +247,16 @@ final class ExpandedView: FlippedView {
 
         // Reply field under its row.
         if let id = model.replyingTo, let t = threads.first(where: { $0.id == id }) {
-            if reply.superview == nil { addSubview(reply) }
+            if reply.superview == nil { addSubview(reply); replyFresh = true }
             reply.configure(t)
         } else if reply.superview != nil {
             reply.removeFromSuperview()
         }
 
-        hints.isHidden = !model.keyboard
+        if hints.isHidden == model.keyboard {
+            hints.isHidden = !model.keyboard
+            if model.keyboard { Anim.fadeIn(hints) }
+        }
         if model.keyboard { hints.show(for: model.selectedThread, replying: model.replyingTo != nil) }
         footer.update()
         needsLayout = true
@@ -266,18 +270,35 @@ final class ExpandedView: FlippedView {
         note.frame = CGRect(x: heading.frame.maxX + 6, y: (top - UI.height(note)) / 2 + 1, width: UI.width(note), height: UI.height(note))
         gear.frame = CGRect(x: w - 32 - 20, y: (top - 20) / 2, width: 20, height: 20)
 
+        // Opening: the rows cascade in, one a beat after the other. Open: rows slide to their
+        // new places on the shape's spring, and new ones fade in where they land.
+        let cascade = !entered && window != nil
         var y = model.listTop
         let rowX: CGFloat = 22, rowW = w - 44
-        for t in model.listThreads {
+        for (i, t) in model.listThreads.enumerated() {
             guard let row = rows[t.id] else { continue }
             let h = model.rowHeight(t)
-            row.frame = CGRect(x: rowX, y: y, width: rowW, height: h)
+            let f = CGRect(x: rowX, y: y, width: rowW, height: h)
+            if cascade || fresh.contains(t.id) {
+                row.frame = f
+                Anim.enter(row, delay: cascade ? 0.03 + 0.03 * Double(min(i, 6)) : 0.06, drop: cascade ? 10 : 6)
+            } else {
+                Anim.glide(row, to: f, damping: damping)
+            }
             y += h
             if model.replyingTo == t.id {
-                reply.frame = CGRect(x: rowX, y: y, width: rowW, height: NotchModel.replyHeight)
+                let rf = CGRect(x: rowX, y: y, width: rowW, height: NotchModel.replyHeight)
+                if replyFresh {
+                    reply.frame = rf
+                    Anim.enter(reply, delay: 0.04, drop: 6)
+                } else {
+                    Anim.glide(reply, to: rf, damping: damping)
+                }
+                replyFresh = false
                 y += NotchModel.replyHeight
             }
         }
+        if window != nil { entered = true; fresh = [] }
         // Empty: a quiet check and one line, centered (by frame) in a row's height.
         let ew = UI.width(empty) + 4, eh = UI.height(empty)
         let iconW: CGFloat = emptyIcon.isHidden ? 0 : 20
@@ -287,8 +308,9 @@ final class ExpandedView: FlippedView {
         empty.frame = CGRect(x: ex + iconW, y: ey, width: ew, height: eh)
 
         let footerTop = model.footerTop
-        hints.frame = CGRect(x: 0, y: footerTop - NotchModel.hintsHeight - 2, width: w, height: NotchModel.hintsHeight)
-        footer.frame = CGRect(x: rowX, y: footerTop, width: rowW, height: NotchModel.footerHeight)
+        Anim.glide(hints, to: CGRect(x: 0, y: footerTop - NotchModel.hintsHeight - 2, width: w, height: NotchModel.hintsHeight),
+                   damping: damping)
+        Anim.glide(footer, to: CGRect(x: rowX, y: footerTop, width: rowW, height: NotchModel.footerHeight), damping: damping)
     }
 }
 
@@ -300,7 +322,7 @@ final class ShelfFooter: FlippedView {
     private let store: ThreadStore
     private let divider = CALayer()
     private let plate = CALayer()
-    private let counts = UI.label(UI.font(11, .medium))
+    private let counts = RollingLabel()
     private let open = UI.label(UI.font(11, .semibold))
     private var lit: Bool?
 
@@ -313,6 +335,8 @@ final class ShelfFooter: FlippedView {
         plate.cornerRadius = 11
         layer?.addSublayer(divider)
         layer?.addSublayer(plate)
+        counts.wantsLayer = true
+        counts.layer?.masksToBounds = true
         [counts, open].forEach(addSubview)
         toolTip = "Open T3 Code"
     }
@@ -325,20 +349,25 @@ final class ShelfFooter: FlippedView {
         let s = store.summary
         let dim = NSColor.white.withAlphaComponent(0.45), bright = NSColor.white.withAlphaComponent(0.88)
         let numberFont = UI.rounded(11, .semibold), wordFont = UI.font(11, .medium)
-        let out = NSMutableAttributedString()
-        func chip(_ symbol: String, _ n: Int, _ word: String, tint: NSColor? = nil) {
-            if out.length > 0 { out.append(UI.text("   ·   ", wordFont, NSColor.white.withAlphaComponent(0.2))) }
+        // Each count rolls on its own; a chip's icon lights up (cross-fades) when it leaves zero.
+        var segments: [RollingLabel.Segment] = []
+        func chip(_ id: String, _ symbol: String, _ n: Int, _ word: String, tint: NSColor? = nil) {
+            if !segments.isEmpty {
+                segments.append(.init(id: id + ".dot", text: UI.text("   ·   ", wordFont, NSColor.white.withAlphaComponent(0.2))))
+            }
             let lit = n > 0
-            out.append(UI.symbol(symbol, 10, lit ? (tint ?? bright) : dim))
-            out.append(UI.text("  \(n)", numberFont, lit ? bright : dim))
-            out.append(UI.text(" " + word, wordFont, dim))
+            let icon = NSMutableAttributedString(attributedString: UI.symbol(symbol, 10, lit ? (tint ?? bright) : dim))
+            icon.append(UI.text("  ", numberFont, dim))
+            segments.append(.init(id: id + ".icon", text: icon, style: lit ? "lit" : "dim"))
+            segments.append(.init(id: id + ".n", text: UI.text("\(n)", numberFont, lit ? bright : dim), number: true))
+            segments.append(.init(id: id + ".word", text: UI.text(" " + word, wordFont, dim)))
         }
         let hidden = model.hiddenCount
-        if hidden > 0 { chip("ellipsis.circle.fill", hidden, "more", tint: bright) }
-        chip("bolt.fill", s.working, "working", tint: ThreadStatus.working.color)
-        chip("moon.zzz.fill", s.snoozed, "snoozed")
-        chip("archivebox.fill", s.settled, "settled")
-        counts.attributedStringValue = out
+        if hidden > 0 { chip("more", "ellipsis.circle.fill", hidden, "more", tint: bright) }
+        chip("working", "bolt.fill", s.working, "working", tint: ThreadStatus.working.color)
+        chip("snoozed", "moon.zzz.fill", s.snoozed, "snoozed")
+        chip("settled", "archivebox.fill", s.settled, "settled")
+        counts.set(segments)
 
         let hover = model.hoveredFooter
         let openText = NSMutableAttributedString(attributedString: UI.text("Open T3 Code  ", UI.font(11, .semibold),
@@ -352,7 +381,8 @@ final class ShelfFooter: FlippedView {
             let fade = CABasicAnimation(keyPath: "backgroundColor")
             fade.fromValue = plate.presentation()?.backgroundColor ?? plate.backgroundColor
             fade.toValue = background
-            fade.duration = hover ? 0.12 : 0.25
+            fade.duration = hover ? 0.12 : 0.28
+            fade.timingFunction = Anim.swap
             plate.add(fade, forKey: "lit")
         }
         lit = hover
@@ -374,7 +404,9 @@ final class ShelfFooter: FlippedView {
         let mid = plate.frame.midY
         let ow = UI.width(open), oh = UI.height(open)
         open.frame = CGRect(x: w - 14 - ow, y: (mid - oh / 2).rounded(), width: ow, height: oh)
-        let ch = UI.height(counts)
+        // Clipped at the side like the label it replaced (truncating), with room above and below
+        // for the numbers to roll.
+        let ch = counts.fittingHeight + 12
         counts.frame = CGRect(x: 14, y: (mid - ch / 2).rounded(), width: max(0, open.frame.minX - 12 - 14), height: ch)
     }
 }
@@ -450,7 +482,7 @@ final class ThreadRowView: FlippedView {
     private let avatar = AvatarView()
     private let time = UI.label(UI.font(11, .medium, digits: true), NSColor.white.withAlphaComponent(0.55))
     private let meta = UI.label(UI.font(11), NSColor.white.withAlphaComponent(0.5))
-    private let diff = UI.label(UI.font(11, .semibold, digits: true))
+    private let diff = RollingLabel()
     private let tools = UI.label(UI.font(11), NSColor.white.withAlphaComponent(0.5))
     private let activity = UI.label(UI.font(11))
     private let terminal = FlippedView()
@@ -461,7 +493,6 @@ final class ThreadRowView: FlippedView {
     }
     private lazy var stop = StopButton(store: store)
     private lazy var actions = RequestActionsView(store: store)
-    private var shownDiff: (Int, Int)?
 
     static let titleHeight: CGFloat = 18
 
@@ -471,7 +502,6 @@ final class ThreadRowView: FlippedView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 12
-        diff.wantsLayer = true
         terminal.wantsLayer = true
         terminal.layer?.cornerRadius = 8
         terminal.layer?.backgroundColor = Theme.current.fill(0.06).cgColor
@@ -480,6 +510,9 @@ final class ThreadRowView: FlippedView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    // A removed row fades out where it was: not clickable meanwhile.
+    override func hitTest(_ point: NSPoint) -> NSView? { alphaValue == 0 ? nil : super.hitTest(point) }
 
     // The whole row opens the thread; buttons inside handle their own clicks first.
     override func mouseDown(with event: NSEvent) {
@@ -500,7 +533,8 @@ final class ThreadRowView: FlippedView {
             let fade = CABasicAnimation(keyPath: "backgroundColor")
             fade.fromValue = l.presentation()?.backgroundColor ?? l.backgroundColor
             fade.toValue = background
-            fade.duration = on ? 0.12 : 0.25
+            fade.duration = on ? 0.12 : 0.28
+            fade.timingFunction = Anim.swap
             l.add(fade, forKey: "lit")
         }
         lit = on
@@ -511,21 +545,22 @@ final class ThreadRowView: FlippedView {
         title.stringValue = t.title
         title.textColor = NSColor.white.withAlphaComponent(t.status == .idle ? 0.7 : 1)
         avatar.configure(provider: t.provider, status: t.status)
-        replyButton.isHidden = !(hover && model.replyingTo != t.id)
+        let same = previous?.id == t.id
+        // Hover controls fade in rather than blink (going away is instant: the cursor has left).
+        show(replyButton, hover && model.replyingTo != t.id, animated: same)
         let busyStop = t.status.isBusy && (hover || store.sending.contains(t.id))
-        stop.isHidden = !busyStop
-        time.isHidden = busyStop
+        show(stop, busyStop, animated: same)
+        show(time, !busyStop, animated: same)
         if busyStop { stop.configure(t) }
 
         meta.attributedStringValue = Self.meta(t)
         let d = (t.linesAdded, t.linesRemoved)
-        if previous?.id == t.id, let old = shownDiff, old != d { diff.layer?.add(UI.roll(up: d.0 + d.1 > old.0 + old.1), forKey: "roll") }
-        shownDiff = d
+        // +N −M: each count rolls digit by digit as the agent edits.
         diff.isHidden = d.0 + d.1 == 0
         let df = UI.font(11, .semibold, digits: true)
         let dt = NSMutableAttributedString(attributedString: UI.text("+\(d.0)", df, Palette.added.withAlphaComponent(0.9)))
         dt.append(UI.text(" −\(d.1)", df, Palette.removed.withAlphaComponent(0.9)))
-        diff.attributedStringValue = dt
+        diff.set(dt, animated: same)
         let tl = NSMutableAttributedString()
         if diff.isHidden && t.filesChanged > 0 { tl.append(UI.symbol("doc.badge.plus", 9, meta.textColor!)); tl.append(UI.text(" \(t.filesChanged)  ", meta.font!, meta.textColor!)) }
         if t.toolCalls > 0 { tl.append(UI.symbol("hammer", 9, meta.textColor!)); tl.append(UI.text(" \(t.toolCalls)", meta.font!, meta.textColor!)) }
@@ -533,12 +568,18 @@ final class ThreadRowView: FlippedView {
 
         activity.attributedStringValue = activityText(t)
         let showsOutput = model.showsOutput(t)
-        terminal.isHidden = !showsOutput
+        show(terminal, showsOutput, animated: same)
         if showsOutput { terminalText.stringValue = (store.commandOutput[t.id] ?? []).joined(separator: "\n") }
         actions.isHidden = t.request == nil
         if t.request != nil { actions.configure(t) }
         tick()
         needsLayout = true
+    }
+
+    private func show(_ v: NSView, _ on: Bool, animated: Bool) {
+        guard v.isHidden == on else { return }
+        v.isHidden = !on
+        if on, animated { Anim.fadeIn(v, duration: 0.16) }
     }
 
     /// Once a second: relative time / run clock / usage-limit countdown.
@@ -648,7 +689,7 @@ final class ThreadRowView: FlippedView {
         let y2: CGFloat = 8 + Self.titleHeight + 3
         let mw = min(UI.width(meta), w - left - pad - 120)
         meta.frame = CGRect(x: x, y: y2, width: mw, height: UI.height(meta)); x += mw + 6
-        if !diff.isHidden { let dw = UI.width(diff); diff.frame = CGRect(x: x, y: y2, width: dw, height: UI.height(diff)); x += dw + 6 }
+        if !diff.isHidden { let dw = diff.fittingWidth; diff.frame = CGRect(x: x, y: y2, width: dw, height: diff.fittingHeight); x += dw + 6 }
         tools.frame = CGRect(x: x, y: y2, width: max(0, min(UI.width(tools), w - pad - x)), height: UI.height(tools))
 
         // Line 3: activity, then the live terminal and request buttons.

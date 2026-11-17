@@ -42,13 +42,11 @@ final class NotchRootView: NSView {
     /// Response 0.42s, damping fraction 0.78: settles fast with a small overshoot.
     /// A finished card opens bouncier (0.6): a little squash-and-settle.
     nonisolated static func spring(_ keyPath: String, damping: CGFloat = 0.78) -> CASpringAnimation {
-        let a = CASpringAnimation(keyPath: keyPath)
-        a.mass = 1
-        a.stiffness = pow(2 * .pi / 0.42, 2)          // response 0.42s
-        a.damping = 2 * damping * (2 * .pi / 0.42)    // damping fraction
-        a.duration = a.settlingDuration
-        return a
+        Anim.spring(keyPath, response: 0.42, damping: damping)
     }
+
+    /// The damping of the shape's latest spring, so things inside move in step with it.
+    private var damping: CGFloat = 0.78
 
     init(model: NotchModel, store: ThreadStore) {
         self.model = model
@@ -144,13 +142,15 @@ final class NotchRootView: NSView {
             let shrinking = applied.map { size.width < $0.size.width || size.height < $0.size.height } ?? false
             // Any shrink wins over the finish's bounce (closing the list onto a finished card too).
             damping = shrinking ? 1 : finishing ? 0.6 : 0.78
+            self.damping = damping
             setShape(size: size, animated: animate, damping: damping)
             applied = (mode, size)
         }
         syncContent(mode: mode, size: size, shapeFrom: shapeFrom, damping: damping)
-        pill.frame = CGRect(x: (bounds.width - size.width) / 2, y: 0, width: size.width, height: model.notchSize.height)
+        // The pill spans the whole canvas, so its parts can glide with the shape's edges.
+        pill.frame = CGRect(x: 0, y: 0, width: bounds.width, height: model.notchSize.height)
         pill.setVisible(mode == .activity)
-        if mode == .activity { pill.update() }
+        if mode == .activity { pill.update(width: size.width, damping: self.damping) }
         syncAura(mode: mode)
     }
 
@@ -210,11 +210,10 @@ final class NotchRootView: NSView {
                 spring.toValue = newPath
                 l.add(spring, forKey: key)
             }
-            // Same spring for the pill's clip, in the pill's coordinates (it sits at the new size).
-            var shift = CGAffineTransform(translationX: -(bounds.width - size.width) / 2, y: 0)
+            // Same spring for the pill's clip (the pill spans the canvas: same coordinates).
             let clip = Self.spring("path", damping: damping)
-            clip.fromValue = (from ?? newPath).copy(using: &shift)
-            clip.toValue = newPath.copy(using: &shift)
+            clip.fromValue = pillMask.presentation()?.path ?? from
+            clip.toValue = newPath
             pillMask.add(clip, forKey: "path")
             let sheenSpring = Self.spring("locations", damping: damping)
             sheenSpring.fromValue = sheen.presentation()?.locations ?? sheen.locations
@@ -229,7 +228,8 @@ final class NotchRootView: NSView {
             let fade = CABasicAnimation(keyPath: "shadowOpacity")
             fade.fromValue = shape.presentation()?.shadowOpacity ?? shape.shadowOpacity
             fade.toValue = expanded ? Theme.current.glowOpacity : 0
-            fade.duration = expanded ? 0.22 : 0.1
+            fade.duration = expanded ? 0.26 : 0.12
+            fade.timingFunction = expanded ? Anim.arrive : Anim.leave
             if expanded {
                 fade.beginTime = CACurrentMediaTime() + 0.2
                 fade.fillMode = .backwards // hold the old (zero) opacity until it starts
@@ -240,16 +240,16 @@ final class NotchRootView: NSView {
                 let chromeFade = CABasicAnimation(keyPath: "opacity")
                 chromeFade.fromValue = chromeFrom
                 chromeFade.toValue = chromeOpacity
-                chromeFade.duration = chromeOpacity == 0 ? 0.15 : 0.25
+                chromeFade.duration = chromeOpacity == 0 ? 0.15 : 0.28
+                chromeFade.timingFunction = chromeOpacity == 0 ? Anim.leave : Anim.arrive
                 chrome.add(chromeFade, forKey: "opacity")
             }
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for l in [shape, backdropMask, chromeMask, rim, aura] { l.path = newPath }
-        var shift = CGAffineTransform(translationX: -(bounds.width - size.width) / 2, y: 0)
-        pillMask.path = newPath.copy(using: &shift)
-        pillMask.frame = CGRect(origin: .zero, size: size)
+        pillMask.path = newPath
+        pillMask.frame = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
         shape.shadowPath = newPath
         aura.shadowPath = newPath
         sheen.locations = sheenLocations(size)
@@ -353,8 +353,7 @@ final class NotchRootView: NSView {
             contentKey = key
             if let old = content {
                 content = nil
-                NSAnimationContext.runAnimationGroup({ $0.duration = 0.12; old.animator().alphaValue = 0 },
-                                                     completionHandler: { old.removeFromSuperview() })
+                retire(old, size: size, damping: damping)
             }
             if !key.isEmpty {
                 let view: NSView = switch mode {
@@ -364,10 +363,12 @@ final class NotchRootView: NSView {
                 }
                 view.wantsLayer = true
                 view.layer?.mask = CAShapeLayer()
-                view.alphaValue = 0
                 addSubview(view)
                 content = view
-                NSAnimationContext.runAnimationGroup { $0.duration = 0.18; view.animator().alphaValue = 1 }
+                // Drops in with the shape as it opens, a beat after it starts to grow. The list
+                // only fades: its rows cascade in on their own.
+                let list = mode == .expanded
+                Anim.enter(view, delay: 0.06, drop: list ? 0 : 6, blurRadius: list ? 0 : 6)
                 if mode == .peek, let event {
                     if event.status.needsYou { nudge() } else { celebrate(event) }
                 }
@@ -397,11 +398,30 @@ final class NotchRootView: NSView {
         }
         switch content {
         case let v as ExpandedView:
+            v.damping = self.damping
             v.update()
         case let v as NeedsYouView: if let e = event { v.configure(e) }
         case let v as FinishedView: if let e = event { v.configure(e) }
         default: break
         }
+    }
+
+    /// Old content fades away, still clipped to the shape as it springs to its new size (it
+    /// used to keep its old clip and show past the edge while the notch shrank).
+    private func retire(_ old: NSView, size: CGSize, damping: CGFloat) {
+        if let mask = old.layer?.mask as? CAShapeLayer {
+            var shift = CGAffineTransform(translationX: -old.frame.minX, y: 0)
+            let target = path(for: size).copy(using: &shift)
+            let spring = Self.spring("path", damping: damping)
+            spring.fromValue = mask.presentation()?.path ?? mask.path
+            spring.toValue = target
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            mask.path = target
+            CATransaction.commit()
+            mask.add(spring, forKey: "path")
+        }
+        Anim.exit(old, duration: 0.1) { old.removeFromSuperview() }
     }
 
     /// Open (list or card): every store change updates it; collapsed only on visible changes.
@@ -415,17 +435,38 @@ final class NotchRootView: NSView {
 /// what's waiting keeps the left (its icons, then "2 need you") and the work moves right
 /// (spinner and "6 working").
 /// Beside a camera notch the two sides sit in the wings on either side of it.
+///
+/// It spans the whole canvas, so its parts can glide with the shape's edges on the same spring.
+/// Numbers roll digit by digit, icons pop in and out one by one, and nothing that stays the
+/// same moves.
 @MainActor
 final class StatusPill: NSView {
     private let model: NotchModel
     private let store: ThreadStore
-    private let icons = NSView()
     private var iconViews: [NotchSummary.Kind: NSImageView] = [:]
-    private let spinner = Spinner()
-    private let label = NSTextField(labelWithString: "")
-    /// "6 working" beside the spinner, only while something also waits on you.
-    private let asideLabel = NSTextField(labelWithString: "")
-    private var shown: (text: String, kinds: [NotchSummary.Kind], count: Int, aside: String?, working: Int)?
+    /// The work's spinner: at the left edge alone, or leading "6 working" on the right beside
+    /// what's waiting. One for each place, so a split or join cross-fades between them instead
+    /// of sliding across the camera.
+    private let leftSpinner = Spinner()
+    private let rightSpinner = Spinner()
+    /// The words at the right edge: "5 working" or "2 need you" alone, "6 working" beside what's
+    /// waiting (so the work's count keeps its place and rolls when the sides split or join).
+    private let rightLabel = RollingLabel(align: .right)
+    /// "2 need you" after the icons, only while the work sits on the right.
+    private let leftLabel = RollingLabel(align: .left)
+    private var kinds: [NotchSummary.Kind] = []
+    private var shown = false
+    /// Width of the notch shape the parts sit in (centered in the canvas).
+    private var shapeWidth: CGFloat = 0
+    private var damping: CGFloat = 0.78
+    /// Just faded back in: place everything where it belongs without sliding it there.
+    private var appearing = true
+    private var spinnerStops: [ObjectIdentifier: DispatchWorkItem] = [:]
+    /// The shape's left and right edges last time, so parts that appear or fade away travel
+    /// with the edge they belong to instead of sitting still while the notch springs.
+    private var edges: (left: CGFloat, right: CGFloat)?
+    /// Parts that just started to show, for the next `place`: they ride in with their edge.
+    private var appeared: Set<ObjectIdentifier> = []
 
     static let font = UI.rounded(13, .semibold)
     static let iconSlot: CGFloat = 16
@@ -438,21 +479,19 @@ final class StatusPill: NSView {
         self.store = store
         super.init(frame: .zero)
         wantsLayer = true
-        icons.wantsLayer = true
+        let slot = CGRect(x: 0, y: 0, width: Self.iconSlot, height: Self.iconSlot) // pops from its middle
         for kind in NotchSummary.Kind.allCases {
             let v = NSImageView()
             v.imageScaling = .scaleProportionallyDown
             v.image = Self.symbol(kind)
+            v.wantsLayer = true
+            v.frame = slot
             iconViews[kind] = v
-            icons.addSubview(v)
+            addSubview(v)
         }
-        for l in [label, asideLabel] {
-            l.font = Self.font
-            l.textColor = .white
-            l.lineBreakMode = .byClipping
-            l.wantsLayer = true
-        }
-        [icons, spinner, asideLabel, label].forEach(addSubview)
+        for v in [leftSpinner, rightSpinner] { v.frame = slot }
+        for v in [leftSpinner, rightSpinner, leftLabel] + Array(iconViews.values) as [NSView] { v.alphaValue = 0 }
+        [leftSpinner, rightSpinner, leftLabel, rightLabel].forEach(addSubview)
         alphaValue = 0
         isHidden = true
     }
@@ -505,85 +544,122 @@ final class StatusPill: NSView {
     }
 
     func setVisible(_ visible: Bool) {
-        guard visible == isHidden else { return }
+        guard let l = layer else { isHidden = !visible; return }
         if visible {
+            guard isHidden || alphaValue < 1 else { return }
             isHidden = false
-            NSAnimationContext.runAnimationGroup { $0.duration = 0.2; animator().alphaValue = 1 }
+            appearing = true
+            // In as the shape settles back around it, once the open list has cleared.
+            Anim.fade(l, to: 1, duration: 0.24, delay: 0.12, key: "visible")
+            Anim.blur(l, in: self, from: 5, to: 0, duration: 0.32, delay: 0.12)
+            alphaValue = 1
         } else {
-            NSAnimationContext.runAnimationGroup({ $0.duration = 0.12; self.animator().alphaValue = 0 },
-                                                 completionHandler: { [weak self] in
-                                                     guard let self, self.alphaValue == 0 else { return }
-                                                     self.isHidden = true
-                                                 })
+            guard !isHidden, alphaValue > 0 else { return }
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.alphaValue == 0 else { return }
+                    self.isHidden = true
+                }
+            }
+            Anim.fade(l, to: 0, duration: 0.1, key: "visible")
+            Anim.blur(l, in: self, from: 0, to: 5, duration: 0.1)
+            alphaValue = 0
+            CATransaction.commit()
         }
     }
 
-    func update() {
+    func update(width: CGFloat, damping: CGFloat) {
         let s = store.summary
         guard let text = s.text else { return }
-        let kinds = s.waiting
-        let count = kinds.isEmpty ? s.working : s.attention
-        let aside = s.workingAside
-        if let old = shown {
-            if (old.aside == nil) != (aside == nil) || old.kinds.isEmpty != kinds.isEmpty {
-                // Splitting into two sides (or joining back), or the spinner trading places with
-                // the icons: things move or swap, so cross-fade it all.
-                layer?.add(Self.fade(), forKey: "fade")
+        shapeWidth = width
+        self.damping = damping
+        let animate = !appearing && shown && window != nil
+        appearing = false
+        shown = true
+        kinds = s.waiting
+        let split = s.workingAside != nil
+        func words(_ t: String) -> NSAttributedString {
+            NSAttributedString(string: t, attributes: [.font: Self.font, .foregroundColor: NSColor.white])
+        }
+        func show(_ v: NSView, _ on: Bool, scale: CGFloat, delay: Double = 0) {
+            if on, v.alphaValue < 0.5 { appeared.insert(ObjectIdentifier(v)) }
+            Anim.reveal(v, on, animated: animate, scale: scale, delay: delay)
+        }
+        rightLabel.set(words(s.workingAside ?? text), animated: animate)
+        // The left words keep their last text while they fade out.
+        if split { leftLabel.set(words(text), animated: animate && leftLabel.alphaValue > 0.5) }
+        show(leftLabel, split, scale: 0.9)
+        // A new icon pops in a beat late, once the words beside it have slid over to make room.
+        for (kind, v) in iconViews {
+            let on = kinds.contains(kind)
+            show(v, on, scale: 0.4, delay: on ? 0.06 : 0)
+        }
+        let working = s.working > 0
+        for (spinner, on) in [(leftSpinner, working && !split), (rightSpinner, working && split)] {
+            show(spinner, on, scale: 0.4)
+            let id = ObjectIdentifier(spinner)
+            spinnerStops[id]?.cancel()
+            if on {
+                spinner.setSpinning(true, color: Theme.current.working)
             } else {
-                // A new count rolls in; a different set of icons cross-fades.
-                if old.text != text { label.layer?.add(UI.roll(up: count >= old.count), forKey: "roll") }
-                if old.kinds != kinds { icons.layer?.add(Self.fade(), forKey: "fade") }
-                if let aside, old.aside != aside {
-                    asideLabel.layer?.add(UI.roll(up: s.working >= old.working), forKey: "roll")
-                }
+                // Keep turning while it fades out, then rest.
+                let stop = DispatchWorkItem { [weak spinner] in spinner?.setSpinning(false, color: Theme.current.working) }
+                spinnerStops[id] = stop
+                DispatchQueue.main.asyncAfter(deadline: .now() + (animate ? 0.35 : 0), execute: stop)
             }
         }
-        shown = (text, kinds, count, aside, s.working)
-        label.stringValue = text
-        asideLabel.stringValue = aside ?? ""
-        asideLabel.isHidden = aside == nil
-        for (kind, v) in iconViews { v.isHidden = !kinds.contains(kind) }
-        let spinning = s.working > 0 // alone, or beside what's waiting
-        spinner.isHidden = !spinning
-        spinner.setSpinning(spinning, color: Theme.current.working)
-        needsLayout = true
+        place(animated: animate)
+    }
+
+    /// Where everything goes. The left edge holds the spinner alone, or the icons and their
+    /// words; the right edge holds the words, led by the spinner beside what's waiting.
+    private func place(animated: Bool) {
+        guard shown, shapeWidth > 0 else { return }
+        let h = bounds.height
+        let x0 = ((bounds.width - shapeWidth) / 2).rounded(), x1 = x0 + shapeWidth
+        // How far each edge is moving: things appearing start that far back, so they ride in
+        // with it.
+        let shift = (left: (edges?.left ?? x0) - x0, right: (edges?.right ?? x1) - x1)
+        edges = (x0, x1)
+        let inset = model.sideInset(for: .activity)
+        let iconY = ((h - Self.iconSlot) / 2).rounded()
+        let lh = rightLabel.fittingHeight
+        let labelY = ((h - lh) / 2).rounded()
+        let move = { (v: NSView, f: CGRect, anchor: Anim.Anchor) in
+            let from = animated && self.appeared.contains(ObjectIdentifier(v))
+                ? f.offsetBy(dx: anchor == .leading ? shift.left : shift.right, dy: 0) : nil
+            Anim.glide(v, to: f, from: from, anchor: anchor, damping: self.damping, animated: animated)
+        }
+        let slot = { (x: CGFloat) in CGRect(x: x, y: iconY, width: Self.iconSlot, height: Self.iconSlot) }
+        move(leftSpinner, slot(x0 + inset), .leading)
+        var x = x0 + inset
+        for kind in NotchSummary.Kind.allCases {
+            guard let v = iconViews[kind] else { continue }
+            if kinds.contains(kind) {
+                move(v, slot(x), .leading)
+                x += Self.iconSlot + Self.iconGap
+            } else {
+                move(v, v.frame.offsetBy(dx: -shift.left, dy: 0), .leading) // fading: rides the edge
+            }
+        }
+        if leftLabel.alphaValue > 0 {
+            let n = CGFloat(kinds.count)
+            let iw = n * Self.iconSlot + max(0, n - 1) * Self.iconGap
+            move(leftLabel, CGRect(x: x0 + inset + iw + Self.wordsGap, y: labelY, width: leftLabel.fittingWidth, height: lh), .leading)
+        } else {
+            move(leftLabel, leftLabel.frame.offsetBy(dx: -shift.left, dy: 0), .leading) // fading: rides the edge
+        }
+        let tw = rightLabel.fittingWidth
+        let right = CGRect(x: x1 - inset - tw, y: labelY, width: tw, height: lh)
+        move(rightLabel, right, .trailing)
+        move(rightSpinner, slot(right.minX - Self.wordsGap - Self.iconSlot), .trailing)
+        appeared = []
     }
 
     override func layout() {
         super.layout()
-        guard let s = shown else { return }
-        let h = bounds.height
-        let inset = model.sideInset(for: .activity)
-        let iconY = ((h - Self.iconSlot) / 2).rounded()
-        let lh = ceil(label.intrinsicContentSize.height)
-        let labelY = ((h - lh) / 2).rounded()
-        let iw = Self.iconsWidth(store.summary), tw = Self.wordsWidth(s.text)
-        // The icons always start at the left edge.
-        icons.frame = CGRect(x: inset, y: iconY, width: iw, height: Self.iconSlot)
-        if let aside = s.aside {
-            // What's waiting keeps the left (icons, then its words); the work moves right,
-            // its spinner leading "6 working", which ends at the right edge.
-            label.frame = CGRect(x: icons.frame.maxX + Self.wordsGap, y: labelY, width: tw, height: lh)
-            let aw = Self.wordsWidth(aside)
-            asideLabel.frame = CGRect(x: bounds.width - inset - aw, y: labelY, width: aw, height: lh)
-            spinner.frame = CGRect(x: asideLabel.frame.minX - Self.wordsGap - Self.iconSlot, y: iconY,
-                                   width: Self.iconSlot, height: Self.iconSlot)
-        } else {
-            label.frame = CGRect(x: bounds.width - inset - tw, y: labelY, width: tw, height: lh)
-            spinner.frame = CGRect(x: inset, y: iconY, width: Self.iconSlot, height: Self.iconSlot)
-        }
-        var x: CGFloat = 0
-        for kind in NotchSummary.Kind.allCases where s.kinds.contains(kind) {
-            iconViews[kind]?.frame = CGRect(x: x, y: 0, width: Self.iconSlot, height: Self.iconSlot)
-            x += Self.iconSlot + Self.iconGap
-        }
-    }
-
-    private static func fade() -> CATransition {
-        let t = CATransition()
-        t.type = .fade
-        t.duration = 0.2
-        return t
+        place(animated: false)
     }
 }
 
