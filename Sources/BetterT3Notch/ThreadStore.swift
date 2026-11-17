@@ -753,7 +753,7 @@ final class ThreadStore: ObservableObject {
 
     /// Fake threads for checking layouts without waiting for real events:
     /// `T3NOTCH_DEMO=approval|question|finished|settled|list` (list: PR markers, usage limit, every status),
-    /// and one per pill message: `working|done|failed|plan|asked-done`.
+    /// one per pill message: `working|done|failed|plan|asked-done`, and any mix with `counts:w6,d1,q1`.
     private static let demo: (threads: [T3Thread], eventId: String?) = {
         guard let mode = ProcessInfo.processInfo.environment["T3NOTCH_DEMO"] else { return ([], nil) }
         func make(_ id: String, _ title: String, _ status: ThreadStatus, started: Double = -200, updated: Double = -30) -> T3Thread {
@@ -852,7 +852,21 @@ final class ThreadStore: ObservableObject {
             f.linesAdded = 37; f.linesRemoved = 12; f.toolCalls = 9
             return ([f, a, b, c, d, e], nil)
         default:
-            return ([], nil)
+            // `counts:w6,d1,q1`: any mix for the collapsed pill. w working, q question, a approval,
+            // p plan ready, f failed, d done.
+            guard mode.hasPrefix("counts:") else { return ([], nil) }
+            let statuses: [Character: ThreadStatus] = ["w": .working, "q": .awaitingInput, "a": .pendingApproval,
+                                                       "p": .planReady, "f": .failed, "d": .completed]
+            var ts: [T3Thread] = []
+            for part in mode.dropFirst("counts:".count).split(separator: ",") {
+                guard let letter = part.first, let status = statuses[letter], let n = Int(part.dropFirst()), n > 0 else { continue }
+                for i in 0..<n {
+                    var t = make("\(letter)\(i)", "Demo thread \(letter)\(i + 1)", status, started: Double(-60 * (i + 1)))
+                    t.provider = "claudeAgent"
+                    ts.append(t)
+                }
+            }
+            return (ts, nil)
         }
     }()
 
