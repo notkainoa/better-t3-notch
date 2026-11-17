@@ -42,7 +42,7 @@ import Testing
         #expect(all.waiting == [.question, .plan, .failed, .done])
     }
 
-    /// Work keeps its own side while something waits: "6 working" left, "2 need you" right.
+    /// Work keeps its own side while something waits: "2 need you" left, "6 working" right.
     @Test func workingStaysBesideWhatWaits() {
         let s = summary(Array(repeating: .working, count: 6) + [.completed, .awaitingInput])
         #expect(s.text == "2 need you")
