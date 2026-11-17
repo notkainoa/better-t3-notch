@@ -346,6 +346,14 @@ final class GeneralPane: SettingsPane {
                    label: { "Open System Settings" }, visible: { SMAppService.mainApp.status == .requiresApproval },
                    action: { SMAppService.openSystemSettingsLoginItems() }),
         ])
+
+        if Updater.isAvailable {
+            section("Updates", footer: "Version \(Updater.version)", [
+                toggle("Check for updates automatically", "Asks before installing anything.",
+                       get: { Updater.checksAutomatically }, set: { Updater.checksAutomatically = $0 }),
+                button("Check now", label: { "Check for Updates…" }, action: { Updater.checkNow() }),
+            ])
+        }
     }
 }
 

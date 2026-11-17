@@ -4,3 +4,4 @@ BetterT3Notch.app/
 *.xcodeproj/
 .DS_Store
 .wrangler/
+dist/

@@ -304,7 +304,7 @@ extension NSScreen {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, SettingsHost {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation, SettingsHost {
     let store = ThreadStore()
     private var controllers: [NotchController] = []
     private var monitors: [Any] = []
@@ -364,6 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
             .store(in: &cancellables)
 
         store.start()
+        Updater.start()
         // Screenshots / testing: put the Settings window up without taking focus.
         if let tab = ProcessInfo.processInfo.environment["T3NOTCH_OPEN_SETTINGS"] {
             settings.show(tab: Int(tab), activate: false)
@@ -431,11 +432,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, Settin
         let open = NSMenuItem(title: "Open T3 Code", action: #selector(openT3), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+        if Updater.isAvailable {
+            let update = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+            update.target = self
+            menu.addItem(update)
+        }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Better T3 Notch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
     @objc private func openSettings() { settings.show() }
+    @objc private func checkForUpdates() { Updater.checkNow() }
+
+    // Greyed out while Sparkle can't start a check (one is already running), as Sparkle recommends.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        item.action == #selector(checkForUpdates) ? Updater.canCheck : true
+    }
 
 
     private func showSettings(from screen: NSScreen) {
