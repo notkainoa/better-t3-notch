@@ -1181,14 +1181,14 @@ enum Settings {
 
     private static let showModelKey = "showModel"
     static var showModel: Bool {
-        get { UserDefaults.standard.object(forKey: showModelKey) as? Bool ?? true }
+        get { UserDefaults.standard.bool(forKey: showModelKey) }
         set { UserDefaults.standard.set(newValue, forKey: showModelKey) }
     }
 
-    /// The open notch glows in the theme's accent (on by default), or casts a plain dark shadow.
+    /// The open notch glows in the theme's accent (off by default), or casts a plain dark shadow.
     private static let accentGlowKey = "accentGlow"
     static var accentGlow: Bool {
-        get { UserDefaults.standard.object(forKey: accentGlowKey) == nil || UserDefaults.standard.bool(forKey: accentGlowKey) }
+        get { UserDefaults.standard.bool(forKey: accentGlowKey) }
         set { UserDefaults.standard.set(newValue, forKey: accentGlowKey) }
     }
 

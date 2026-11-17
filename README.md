@@ -95,7 +95,7 @@ Settings (the gear in the open notch, or the menu-bar icon → **Settings…**, 
 
 - **General:** which display(s) to show it on, Open on hover, screen-sharing visibility, Launch at Login.
 - **Notifications:** turn each pop-up off on its own (a run finishing, a run failing, an agent needing you), and each sound (finished, failed, needs you, pull request news, usage limit resets) or all of them. A turned-off pop-up still counts in the notch and shows in the list.
-- **Appearance:** theme, accent glow, showing the model.
+- **Appearance:** theme, accent glow and showing the model (both off by default).
 
 ## How it connects
 
