@@ -194,6 +194,11 @@ final class NotchRootView: NSView {
         fadeBackdrop(to: size)
         let newPath = path(for: size)
         let expanded = model.mode == .expanded
+        // Collapsed beside a camera notch, the pill is plain black like the notch it extends: no
+        // sheen, no rim. In a fullscreen app the strip around the notch is black too, and the rim
+        // drew an outline around the pill while the sheen made it lighter than the notch.
+        let collapsed = model.mode == .idle || model.mode == .activity
+        let chromeOpacity: Float = collapsed && model.hardwareNotch ? 0 : 1
         if animated {
             let from = shape.presentation()?.path ?? shape.path
             // Everything shaped like the notch springs together, so nothing peeks out mid-flight.
@@ -230,6 +235,14 @@ final class NotchRootView: NSView {
                 fade.fillMode = .backwards // hold the old (zero) opacity until it starts
             }
             shape.add(fade, forKey: "shadow")
+            let chromeFrom = chrome.presentation()?.opacity ?? chrome.opacity
+            if chromeFrom != chromeOpacity {
+                let chromeFade = CABasicAnimation(keyPath: "opacity")
+                chromeFade.fromValue = chromeFrom
+                chromeFade.toValue = chromeOpacity
+                chromeFade.duration = chromeOpacity == 0 ? 0.15 : 0.25
+                chrome.add(chromeFade, forKey: "opacity")
+            }
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -240,6 +253,7 @@ final class NotchRootView: NSView {
         shape.shadowPath = newPath
         aura.shadowPath = newPath
         sheen.locations = sheenLocations(size)
+        chrome.opacity = chromeOpacity
         // A shadow is a blur pass; only pay for it while it shows.
         shape.shadowOpacity = expanded ? Theme.current.glowOpacity : 0
         sweepTrack.frame = CGRect(x: (bounds.width - size.width) / 2, y: size.height - Self.sweepHeight,
