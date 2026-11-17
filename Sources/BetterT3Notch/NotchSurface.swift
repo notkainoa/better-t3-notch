@@ -412,8 +412,8 @@ final class NotchRootView: NSView {
 
 /// The collapsed notch: what's waiting on you as icons on the left, one line of words on the
 /// right ("2 need you"), or a spinner and "5 working" when nothing waits. When both happen,
-/// the work keeps the left (spinner and "6 working") and what's waiting moves right
-/// (its icons, then "2 need you").
+/// what's waiting keeps the left (its icons, then "2 need you") and the work moves right
+/// (spinner and "6 working").
 /// Beside a camera notch the two sides sit in the wings on either side of it.
 @MainActor
 final class StatusPill: NSView {
@@ -496,12 +496,12 @@ final class StatusPill: NSView {
 
     /// Room each side needs, for sizing the notch before anything is drawn: the icons (or
     /// spinner) on the left and the words on the right, or, with work beside something waiting,
-    /// spinner + "6 working" on the left and icons + "2 need you" on the right.
+    /// icons + "2 need you" on the left and spinner + "6 working" on the right.
     static func widths(_ s: NotchSummary) -> (left: CGFloat, right: CGFloat) {
         guard let text = s.text else { return (0, 0) }
         let icons = iconsWidth(s), words = wordsWidth(text)
         guard let aside = s.workingAside else { return (icons, words) }
-        return (iconSlot + wordsGap + wordsWidth(aside), icons + wordsGap + words)
+        return (icons + wordsGap + words, iconSlot + wordsGap + wordsWidth(aside))
     }
 
     func setVisible(_ visible: Bool) {
@@ -557,17 +557,20 @@ final class StatusPill: NSView {
         let iconY = ((h - Self.iconSlot) / 2).rounded()
         let lh = ceil(label.intrinsicContentSize.height)
         let labelY = ((h - lh) / 2).rounded()
-        // The spinner always sits at the left edge, so it stays put when the sides split or join.
-        spinner.frame = CGRect(x: inset, y: iconY, width: Self.iconSlot, height: Self.iconSlot)
         let iw = Self.iconsWidth(store.summary), tw = Self.wordsWidth(s.text)
-        // The words always end at the right edge; with work beside them, their icons lead them.
-        label.frame = CGRect(x: bounds.width - inset - tw, y: labelY, width: tw, height: lh)
+        // The icons always start at the left edge.
+        icons.frame = CGRect(x: inset, y: iconY, width: iw, height: Self.iconSlot)
         if let aside = s.aside {
-            asideLabel.frame = CGRect(x: inset + Self.iconSlot + Self.wordsGap, y: labelY,
-                                      width: Self.wordsWidth(aside), height: lh)
-            icons.frame = CGRect(x: label.frame.minX - Self.wordsGap - iw, y: iconY, width: iw, height: Self.iconSlot)
+            // What's waiting keeps the left (icons, then its words); the work moves right,
+            // its spinner leading "6 working", which ends at the right edge.
+            label.frame = CGRect(x: icons.frame.maxX + Self.wordsGap, y: labelY, width: tw, height: lh)
+            let aw = Self.wordsWidth(aside)
+            asideLabel.frame = CGRect(x: bounds.width - inset - aw, y: labelY, width: aw, height: lh)
+            spinner.frame = CGRect(x: asideLabel.frame.minX - Self.wordsGap - Self.iconSlot, y: iconY,
+                                   width: Self.iconSlot, height: Self.iconSlot)
         } else {
-            icons.frame = CGRect(x: inset, y: iconY, width: iw, height: Self.iconSlot)
+            label.frame = CGRect(x: bounds.width - inset - tw, y: labelY, width: tw, height: lh)
+            spinner.frame = CGRect(x: inset, y: iconY, width: Self.iconSlot, height: Self.iconSlot)
         }
         var x: CGFloat = 0
         for kind in NotchSummary.Kind.allCases where s.kinds.contains(kind) {
