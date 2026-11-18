@@ -4,7 +4,7 @@
 
 A Dynamic Island–style notch for [T3 Code](https://github.com/t3tools/t3code) on macOS. See what your agents are doing, answer them, and stop them, without leaving the app you're in.
 
-**Website:** [better-t3-notch.pages.dev](https://better-t3-notch.pages.dev)
+**Website:** [notch.kainoa.me](https://notch.kainoa.me)
 
 Collapsed, it leaves nothing out. Usually the icons sit on the left and the words on the right, beside the camera:
 
