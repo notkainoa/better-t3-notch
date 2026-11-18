@@ -9,7 +9,7 @@ import AppKit
 ///
 /// The expanded list and cards (NotchContent.swift) only exist while open.
 @MainActor
-final class NotchRootView: NSView {
+final class NotchRootView: NSView, PressTarget {
     private let model: NotchModel
     private let store: ThreadStore
     private let shape = CAShapeLayer()
@@ -130,6 +130,66 @@ final class NotchRootView: NSView {
     }
 
     @objc private func openSettings() { model.onSettings() }
+
+    // MARK: Swipes
+
+    /// A two-finger swipe up on the open list or a pop-up (done, failed, a question, an approval)
+    /// puts it away, without opening anything.
+    var onSwipeAway: () -> Void = {}
+    /// A two-finger swipe down on the closed notch opens the list.
+    var onSwipeOpen: () -> Void = {}
+    /// The swipe that closed it is over, momentum and all: the window can let the next scroll
+    /// through to whatever is under the cursor again.
+    var onSwipeSettled: () -> Void = {}
+    /// Which way a swipe does something right now (nil: not here, not now).
+    var swipeDirection: () -> SwipeTracker.Direction? = { nil }
+    private var swipe = SwipeTracker()
+    private var swipeSettle: DispatchWorkItem?
+
+    override func scrollWheel(with event: NSEvent) {
+        // Every event of a swipe that fired, momentum included, pushes the all-clear back.
+        if swipe.fired { settleSwipe() }
+        let direction = swipeDirection()
+        switch swipe.track(event, toward: direction) {
+        case .ignore: break
+        case .lift(let up): follow(up)
+        case .fire:
+            follow(0)
+            if direction == .up { onSwipeAway() } else { onSwipeOpen() }
+            settleSwipe()
+        }
+    }
+
+    private func settleSwipe() {
+        swipeSettle?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.swipeSettle = nil
+            self?.onSwipeSettled()
+        }
+        swipeSettle = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
+    /// The notch lifts a little with the fingers, so the swipe feels caught; springs back if
+    /// they let go short of it.
+    func follow(_ up: CGFloat) {
+        guard let layer, !Anim.reduced else { return }
+        // A long drag lifts it no further than a swipe's worth.
+        let target = CATransform3DMakeTranslation(0, -(min(up, SwipeTracker.distance) * 0.3).rounded(), 0)
+        guard !CATransform3DEqualToTransform(layer.sublayerTransform, target) else { return }
+        if up == 0 {
+            let back = Self.spring("sublayerTransform", damping: 1)
+            back.fromValue = NSValue(caTransform3D: layer.presentation()?.sublayerTransform ?? layer.sublayerTransform)
+            back.toValue = NSValue(caTransform3D: target)
+            layer.add(back, forKey: "swipe")
+        } else {
+            layer.removeAnimation(forKey: "swipe")
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.sublayerTransform = target
+        CATransaction.commit()
+    }
 
     override func layout() {
         super.layout()
@@ -932,5 +992,125 @@ final class LayerDots: NSView {
             breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             halo.add(breathe, forKey: "pulse")
         }
+    }
+}
+
+/// Follows one two-finger gesture (trackpad, Magic Mouse) and says when it's a swipe that way.
+struct SwipeTracker {
+    enum Direction { case up, down }
+    enum Step: Equatable {
+        case ignore
+        /// How far up the fingers are, to lift the notch by a little; 0 lets it drop back.
+        case lift(CGFloat)
+        /// Far enough: close it (up) or open it (down). Once per gesture.
+        case fire
+    }
+
+    /// Points of travel that count as a swipe.
+    static let distance: CGFloat = 24
+    /// A quick flick only travels a little before the fingers let go, still moving.
+    static let flickDistance: CGFloat = 8
+    private var travel = CGPoint.zero
+    private var flicked = false
+    private(set) var fired = false
+
+    /// `direction`: the way a swipe does something right now (up while open, down while closed).
+    mutating func track(_ event: NSEvent, toward direction: Direction?) -> Step {
+        track(phase: event.phase, momentum: event.momentumPhase, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
+              inverted: event.isDirectionInvertedFromDevice, toward: direction)
+    }
+
+    mutating func track(phase: NSEvent.Phase, momentum: NSEvent.Phase, dx: CGFloat, dy: CGFloat,
+                        inverted: Bool, toward direction: Direction?) -> Step {
+        // Fingers moving up count positive, whatever the natural-scrolling setting.
+        let flip: CGFloat = inverted ? -1 : 1
+        if !momentum.isEmpty {
+            // Momentum after the fingers lift: only to finish a flick that didn't reach the full
+            // distance, on its first event that moves (the first one may carry no movement).
+            guard flicked, let direction, !fired else { return .ignore }
+            let along = dy * flip * (direction == .up ? 1 : -1)
+            if along > 0 {
+                flicked = false
+                fired = true
+                return .fire
+            }
+            if along < 0 || momentum.contains(.ended) || momentum.contains(.cancelled) { flicked = false }
+            return .ignore
+        }
+        // A clicky mouse wheel has no gesture phase: it never opens or closes anything.
+        guard !phase.isEmpty else { return .ignore }
+        if phase.contains(.began) || phase.contains(.mayBegin) {
+            travel = .zero
+            flicked = false
+            fired = false
+        }
+        // The lift-off event can still carry a little movement. Nothing counts while a swipe can't
+        // do anything (a click held, a reply being typed), so lifting that doesn't fire at once.
+        if direction != nil {
+            travel.x += dx * flip
+            travel.y += dy * flip
+        }
+        // Fingers up, or it opened or closed some other way mid-swipe: always drop the lift.
+        if phase.contains(.ended) || phase.contains(.cancelled) {
+            let ended = phase.contains(.ended) && !fired
+            // A slow swipe can cross the line on its very last event.
+            if ended, let direction, along(direction) >= Self.distance {
+                fired = true
+                return .fire
+            }
+            flicked = ended && along(direction) >= Self.flickDistance
+            return .lift(0)
+        }
+        guard let direction, !fired else { return .lift(0) }
+        let moved = along(direction)
+        guard moved >= Self.distance else { return .lift(direction == .up ? moved : 0) }
+        fired = true
+        return .fire
+    }
+
+    /// How far the fingers have gone that way this gesture; 0 when it's mostly sideways.
+    private func along(_ direction: Direction?) -> CGFloat {
+        guard let direction, abs(travel.y) > abs(travel.x) else { return 0 }
+        return max(0, direction == .up ? travel.y : -travel.y)
+    }
+}
+
+/// Press, hold and drag over the notch (one finger, or a mouse): up closes it while it's open,
+/// down opens it while it's closed. A press that never moves is just a click.
+struct DragSwipe {
+    /// Moving less than this is a click that wobbled, not a drag.
+    static let slop: CGFloat = 5
+    /// Points of travel (the swipe's way) that count, when let go: the same as two fingers.
+    static let distance = SwipeTracker.distance
+    enum Outcome: Equatable { case click, swipe, cancel }
+
+    /// Screen coordinates (y up).
+    let start: CGPoint
+    let direction: SwipeTracker.Direction
+    private(set) var dragging = false
+
+    init(at start: CGPoint, toward direction: SwipeTracker.Direction) {
+        self.start = start
+        self.direction = direction
+    }
+
+    /// Held down and moved: how far it has gone the swipe's way, once it's a drag.
+    mutating func move(to p: CGPoint) -> CGFloat? {
+        if !dragging, hypot(p.x - start.x, p.y - start.y) >= Self.slop { dragging = true }
+        return dragging ? along(p) : nil
+    }
+
+    /// Let go: a click (never dragged), a swipe, or a drag that didn't count (does nothing).
+    mutating func end(at p: CGPoint) -> Outcome {
+        _ = move(to: p)
+        guard dragging else { return .click }
+        return along(p) >= Self.distance ? .swipe : .cancel
+    }
+
+    /// 0 when it's mostly sideways or the other way.
+    private func along(_ p: CGPoint) -> CGFloat {
+        let rise = p.y - start.y
+        guard abs(rise) > abs(p.x - start.x) else { return 0 }
+        return max(0, direction == .up ? rise : -rise)
     }
 }
