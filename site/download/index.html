@@ -123,6 +123,8 @@ footer nav a{text-decoration:none}
 .direct{margin-top:14px;font:500 14px/1.4 var(--rounded);color:var(--fg-dim)}
 .direct a{color:var(--accent);font-weight:600}
 .direct:empty{display:none}
+.card.going .actions{display:none}
+.card.going .direct{text-align:center}
 .skeleton{display:inline-block;width:220px;max-width:70%;height:1em;border-radius:6px;background:linear-gradient(90deg,var(--card-2),var(--card-3),var(--card-2));background-size:200% 100%;animation:shimmer 1.4s linear infinite;vertical-align:middle}
 @keyframes shimmer{to{background-position:-200% 0}}
 
@@ -228,7 +230,6 @@ footer nav a{text-decoration:none}
         <p class="chipline" id="chipline"></p>
         <div class="actions" id="actions">
           <a class="btn btn-p" id="dlBtn" href="https://github.com/notkainoa/better-t3-notch/releases/latest/download/BetterT3Notch.dmg"><svg><use href="#dl"/></svg><span id="dlLabel">Download</span></a>
-          <a class="btn btn-s" href="https://github.com/notkainoa/better-t3-notch"><svg><use href="#gh"/></svg>GitHub</a>
         </div>
         <p class="direct" id="direct"></p>
       </div>
@@ -402,6 +403,7 @@ footer nav a{text-decoration:none}
       try { sessionStorage.setItem('bt3n-auto', JSON.stringify({ url, t: Date.now() })); } catch (e) {}
       location.href = url;
     }, 800);
+    $('#card').classList.add('going');
     setState('going', `Downloading ${label}…`, 'It should land in your Downloads folder in a moment.');
     direct.innerHTML = `Didn't start? <a href="${esc(url)}">Download it directly</a>.`;
   }
