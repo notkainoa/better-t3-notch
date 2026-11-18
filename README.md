@@ -19,7 +19,7 @@ When threads are working **and** something waits on you, it shows both: the spin
 
 "Done" and "failed" follow T3's own read state, so they clear once you open the thread in T3 Code. Snoozed threads stay out of it until they wake. "Working" is what T3's Working shelf holds: threads running, and threads waiting on a subagent, another thread, or background work the agent is waiting for. A dev server or a PR watch left running doesn't count. Work delegated from a thread you can see counts under that thread, like in T3's sidebar.
 
-Click it (or press **⌘⇧Space**, which you can change in Settings) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on hover** in Settings.
+Click it (or press **⌘⇧Space**, which you can change in Settings) for the list: only the threads waiting on you, with how many are working, snoozed and settled at the bottom. Click a thread to open it in T3 Code, or the bottom bar to open T3 Code. Hovering opens it too if you turn on **Open on hover** in Settings. You can also swipe it: down to open the list, up to put the list or a pop-up away, with two fingers on the trackpad or by pressing and dragging. Swiping never opens T3 Code.
 
 When an agent needs you, answer right from the notch:
 
