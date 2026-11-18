@@ -317,7 +317,7 @@ final class ExpandedView: FlippedView {
 /// "+2 more · ⚡ 5 working · ☾ 2 snoozed · ▣ 14 settled   Open T3 Code ↗", as one button: T3's
 /// sidebar shelves, counted, not opened here. Clicking anywhere on it brings T3 Code up.
 @MainActor
-final class ShelfFooter: FlippedView {
+final class ShelfFooter: FlippedView, PressTarget {
     private let model: NotchModel
     private let store: ThreadStore
     private let divider = CALayer()
@@ -473,7 +473,7 @@ final class AvatarView: NSView {
 // MARK: - Thread row
 
 @MainActor
-final class ThreadRowView: FlippedView {
+final class ThreadRowView: FlippedView, PressTarget {
     private let model: NotchModel
     private let store: ThreadStore
     private(set) var thread: T3Thread?
@@ -915,7 +915,7 @@ final class NeedsYouView: FlippedView {
 
 /// A thread just finished (or failed): its final message, for a few seconds. Click to open.
 @MainActor
-final class FinishedView: FlippedView {
+final class FinishedView: FlippedView, PressTarget {
     private let model: NotchModel
     private let store: ThreadStore
     private var thread: T3Thread?

@@ -9,13 +9,105 @@ final class NotchPanel: NSPanel {
     var allowsKey = false
     override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
+
+    weak var gestures: NotchGestures?
+    /// A press over the notch, held back until it's clear whether it's a click or a drag, with
+    /// what the notch showed and what was pressed when it went down.
+    private var press: (down: NSEvent, swipe: DragSwipe, target: SwipeTarget, pressed: NSView?)?
+    var isPressing: Bool { press != nil }
+
+    /// Press-and-drag swipes. A press is held back (rows and cards act the moment they're
+    /// pressed), then either replayed as the click it was or turned into a swipe.
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            // A press still held means its release never came here: start over from this one.
+            cancelPress()
+            let p = screenPoint(event)
+            guard let target = gestures?.swipeTarget(at: p) else { break }
+            press = (event, DragSwipe(at: p, toward: target.direction), target, pressed(event))
+            return
+        case .leftMouseDragged where press != nil:
+            if let along = press?.swipe.move(to: screenPoint(event)), let direction = press?.swipe.direction {
+                gestures?.swipeMoved(along, toward: direction)
+            }
+            return
+        case .leftMouseUp where press != nil:
+            guard let (down, held, target, pressed) = press else { break }
+            press = nil
+            var swipe = held
+            var outcome = swipe.end(at: screenPoint(event))
+            // The notch changed under the press (a card came or went, the list closed): a swipe
+            // or a click would act on something that wasn't there, so it does nothing. A click also
+            // needs the same thing under it (not a row that slid in, or an Approve button that
+            // appeared); a swipe replays nothing, so the list shifting under it doesn't matter.
+            if gestures?.swipeTarget(at: swipe.start) != target
+                || (outcome == .click && self.pressed(down) !== pressed) { outcome = .cancel }
+            if outcome == .click {
+                // The click it was: the release goes first in line, so a button that tracks the
+                // press (and waits for its release) gets it, then the press itself.
+                NSApp.postEvent(event, atStart: true)
+                super.sendEvent(down)
+            }
+            gestures?.swipeEnded(outcome == .swipe, toward: swipe.direction)
+            return
+        default:
+            break
+        }
+        super.sendEvent(event)
+    }
+
+    /// Drop a held press without acting on it (its release went missing).
+    func cancelPress() {
+        guard let held = press else { return }
+        press = nil
+        gestures?.swipeEnded(false, toward: held.swipe.direction)
+    }
+
+    /// What a click at this spot would act on right now: the button under it, or else the row,
+    /// card or footer it's in (the labels inside a row shift a little as it updates; labels are
+    /// NSControls too, so it looks for buttons, not controls).
+    private func pressed(_ event: NSEvent) -> NSView? {
+        Self.clickTarget(of: contentView?.hitTest(event.locationInWindow))
+    }
+
+    static func clickTarget(of hit: NSView?) -> NSView? {
+        var view = hit
+        while let v = view, !(v is NSButton || v is PressTarget) { view = v.superview }
+        return view
+    }
+
+    private func screenPoint(_ event: NSEvent) -> CGPoint {
+        convertPoint(toScreen: event.locationInWindow)
+    }
+}
+
+/// A view that acts on a click as a whole (a row, a card, the footer, the closed notch).
+protocol PressTarget: AnyObject {}
+
+/// What a swipe at some point would act on: which way does something, and what's showing.
+struct SwipeTarget: Equatable {
+    var direction: SwipeTracker.Direction
+    /// `.idle` for any closed notch: work starting or settling under a click doesn't change it.
+    var mode: NotchMode
+    /// The pop-up's thread, so one card swapped for another under a press counts as a change.
+    var eventId: String?
+}
+
+@MainActor
+protocol NotchGestures: AnyObject {
+    /// What a press-and-drag at `p` (screen) would act on; nil lets the press through untouched
+    /// (not over the notch, or typing a reply).
+    func swipeTarget(at p: CGPoint) -> SwipeTarget?
+    func swipeMoved(_ along: CGFloat, toward direction: SwipeTracker.Direction)
+    func swipeEnded(_ swiped: Bool, toward direction: SwipeTracker.Direction)
 }
 
 private let forceExpanded = ProcessInfo.processInfo.environment["T3NOTCH_FORCE_EXPANDED"] != nil
 
 /// One notch window pinned to the top-center of a single display.
 @MainActor
-final class NotchController {
+final class NotchController: NotchGestures {
     let screen: NSScreen
     private let panel: NotchPanel
     private let model: NotchModel
@@ -28,6 +120,13 @@ final class NotchController {
 
     /// Window is sized for the largest state; the visible notch is drawn inside it.
     private static let canvas = CGSize(width: 700, height: NotchModel.maxHeight)
+
+    /// Swiped away: hovering doesn't open it again until the cursor has left the notch.
+    private var swipedAway = false
+    /// Swiped open: a drag down can let go past a short list, so leaving it doesn't close it
+    /// until this (uptime) has passed.
+    private var swipeHeldUntil: TimeInterval?
+    private var staleCheckPending = false
 
     init(screen: NSScreen, store: ThreadStore, onSettings: @escaping () -> Void) {
         self.screen = screen
@@ -59,6 +158,18 @@ final class NotchController {
         panel.sharingType = Settings.hideFromCapture ? .none : .readOnly // see applyCaptureSetting()
         root = NotchRootView(model: model, store: store)
         panel.contentView = root
+        root.onSwipeAway = { [weak self] in self?.swipeAway() }
+        root.onSwipeOpen = { [weak self] in self?.swipeOpen() }
+        // Two fingers follow the same rules as a press, and wait while a press is held (it would
+        // replay onto whatever the swipe left behind).
+        root.swipeDirection = { [weak self] in
+            guard let self, !self.panel.isPressing else { return nil }
+            return self.swipeTarget(at: NSEvent.mouseLocation)?.direction
+        }
+        panel.gestures = self
+        // Scrolling doesn't move the pointer, so nothing re-checks what's under it: without this
+        // the closed notch's empty canvas kept eating the next scroll until the mouse moved.
+        root.onSwipeSettled = { [weak self] in self?.updateHover(NSEvent.mouseLocation) }
         panel.orderFrontRegardless()
 
         // Re-render when store changes so `model.mode` (derived) is re-evaluated.
@@ -104,7 +215,8 @@ final class NotchController {
     var isFocused: Bool { model.focused }
     /// Pointer is somewhere this notch could care about (or it still thinks it's hovered).
     func cares(about p: CGPoint) -> Bool {
-        model.hovering || model.hoveredRow != nil || model.hoveredFooter || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
+        model.hovering || model.hoveredRow != nil || model.hoveredFooter || panel.isPressing
+            || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
     }
     var peekRow: String? { model.peekRow }
 
@@ -197,7 +309,49 @@ final class NotchController {
 
     func collapse() {
         model.holdOpen = false
+        swipeHeldUntil = nil
         model.hovering = false
+    }
+
+    /// Swiped up on the open list or a pop-up: back to the pill, and nothing opens. A pop-up goes
+    /// the way its close button sends it (a "needs you" card keeps its island).
+    func swipeAway() {
+        unfocus() // keyboard / reply mode: same as Esc
+        // A card under the cursor counts as hovered: without this the list would open in its place.
+        collapseWork?.cancel()
+        collapseWork = nil
+        collapse()
+        store.dismissEvent()
+        swipedAway = true
+    }
+
+    /// Swiped down on the closed notch (two fingers, or press and drag): open the list, as a
+    /// click does.
+    func swipeOpen() {
+        swipedAway = false
+        swipeHeldUntil = ProcessInfo.processInfo.systemUptime + 1
+        model.hovering = true
+    }
+
+    func swipeTarget(at p: CGPoint) -> SwipeTarget? {
+        guard !forceExpanded, model.replyingTo == nil,
+              visibleRect().insetBy(dx: -4, dy: -4).contains(p) else { return nil }
+        let mode = model.mode
+        let open = mode == .expanded || mode == .peek
+        return SwipeTarget(direction: open ? .up : .down, mode: open ? mode : .idle,
+                           eventId: mode == .peek ? store.eventId : nil)
+    }
+
+    func swipeMoved(_ along: CGFloat, toward direction: SwipeTracker.Direction) {
+        if direction == .up { root.follow(along) }
+    }
+
+    func swipeEnded(_ swiped: Bool, toward direction: SwipeTracker.Direction) {
+        root.follow(0)
+        if swiped {
+            if direction == .up { swipeAway() } else { swipeOpen() }
+        }
+        updateHover(NSEvent.mouseLocation) // hover was paused while the button was held
     }
 
     /// Display changes rebuild every notch; tear this one down completely.
@@ -226,6 +380,20 @@ final class NotchController {
 
     func updateHover(_ p: CGPoint) {
         if forceExpanded { return }
+        // Held down over the notch (a click or a drag): it stays as it is until let go.
+        if panel.isPressing {
+            // Unless the release went missing (Mission Control, a screen lock): if the button is
+            // still up a moment from now, the release isn't just waiting in line, so drop it.
+            if NSEvent.pressedMouseButtons & 1 == 0, !staleCheckPending {
+                staleCheckPending = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    guard let self else { return }
+                    self.staleCheckPending = false
+                    if NSEvent.pressedMouseButtons & 1 == 0 { self.panel.cancelPress() }
+                }
+            }
+            return
+        }
         // Slight slop so slamming the cursor into the top edge opens it.
         let rect = visibleRect()
         let inside = rect.insetBy(dx: -4, dy: -4).contains(p)
@@ -240,14 +408,18 @@ final class NotchController {
             collapseWork?.cancel()
             collapseWork = nil
             // Otherwise a click opens it (NotchRootView.mouseDown).
-            if Settings.openOnHover, !model.hovering { model.hovering = true }
-        } else if model.hovering, collapseWork == nil, !model.holdOpen {
+            if Settings.openOnHover, !model.hovering, !swipedAway { model.hovering = true }
+            return
+        }
+        swipedAway = false
+        if model.hovering, collapseWork == nil, !model.holdOpen {
             let work = DispatchWorkItem { [weak self] in
                 self?.model.hovering = false
                 self?.collapseWork = nil
             }
             collapseWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+            let held = max(0, (swipeHeldUntil ?? 0) - ProcessInfo.processInfo.systemUptime)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 + held, execute: work)
         }
     }
 
