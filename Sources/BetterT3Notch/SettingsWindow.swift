@@ -354,6 +354,16 @@ final class GeneralPane: SettingsPane {
                 button("Check now", label: { "Check for Updates…" }, action: { Updater.checkNow() }),
             ])
         }
+
+        // Bottom right, under everything: the notch has no Dock icon or app menu to quit from.
+        let quit = NSButton(title: "Quit Better T3 Notch", target: NSApp, action: #selector(NSApplication.terminate(_:)))
+        quit.bezelStyle = .push
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let bar = NSStackView(views: [spacer, quit])
+        bar.orientation = .horizontal
+        bar.widthAnchor.constraint(equalToConstant: Self.width - 40).isActive = true
+        addBanner(bar)
     }
 }
 

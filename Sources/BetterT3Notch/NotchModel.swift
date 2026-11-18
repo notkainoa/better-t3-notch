@@ -67,6 +67,8 @@ final class NotchModel: ObservableObject {
     let hardwareNotch: Bool
     let store: ThreadStore
     var onSettings: () -> Void = {}
+    /// The right-click menu is up: the cursor may wander off the notch, don't collapse under it.
+    var holdOpen = false
 
     static let expandedWidth: CGFloat = 540
     static let rowHeight: CGFloat = 70
