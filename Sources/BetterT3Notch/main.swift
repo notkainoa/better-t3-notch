@@ -126,7 +126,6 @@ final class NotchController: NotchGestures {
     /// Swiped open: a drag down can let go past a short list, so leaving it doesn't close it
     /// until this (uptime) has passed.
     private var swipeHeldUntil: TimeInterval?
-    private var staleCheckPending = false
 
     init(screen: NSScreen, store: ThreadStore, onSettings: @escaping () -> Void) {
         self.screen = screen
@@ -215,8 +214,7 @@ final class NotchController: NotchGestures {
     var isFocused: Bool { model.focused }
     /// Pointer is somewhere this notch could care about (or it still thinks it's hovered).
     func cares(about p: CGPoint) -> Bool {
-        model.hovering || model.hoveredRow != nil || model.hoveredFooter || panel.isPressing
-            || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
+        model.hovering || model.hoveredRow != nil || model.hoveredFooter || panel.frame.insetBy(dx: -8, dy: -8).contains(p)
     }
     var peekRow: String? { model.peekRow }
 
@@ -333,6 +331,11 @@ final class NotchController: NotchGestures {
         model.hovering = true
     }
 
+    /// A click went to another app: a press still held here lost its release (Mission Control,
+    /// a screen lock), so let it go. Not the button state: input posted straight to the app
+    /// (accessibility and automation tools) never shows as a pressed button.
+    func dropStalePress() { panel.cancelPress() }
+
     func swipeTarget(at p: CGPoint) -> SwipeTarget? {
         guard !forceExpanded, model.replyingTo == nil,
               visibleRect().insetBy(dx: -4, dy: -4).contains(p) else { return nil }
@@ -381,19 +384,7 @@ final class NotchController: NotchGestures {
     func updateHover(_ p: CGPoint) {
         if forceExpanded { return }
         // Held down over the notch (a click or a drag): it stays as it is until let go.
-        if panel.isPressing {
-            // Unless the release went missing (Mission Control, a screen lock): if the button is
-            // still up a moment from now, the release isn't just waiting in line, so drop it.
-            if NSEvent.pressedMouseButtons & 1 == 0, !staleCheckPending {
-                staleCheckPending = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    guard let self else { return }
-                    self.staleCheckPending = false
-                    if NSEvent.pressedMouseButtons & 1 == 0 { self.panel.cancelPress() }
-                }
-            }
-            return
-        }
+        if panel.isPressing { return }
         // Slight slop so slamming the cursor into the top edge opens it.
         let rect = visibleRect()
         let inside = rect.insetBy(dx: -4, dy: -4).contains(p)
@@ -506,6 +497,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             monitors.append(m)
         }
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { e in handler(e); return e }) {
+            monitors.append(m)
+        }
+        // A held press always gets its own release; a click going to another app means it won't.
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp], handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.controllers.forEach { $0.dropStalePress() } }
+        }) {
             monitors.append(m)
         }
         // Displays plugged/unplugged or rearranged.
