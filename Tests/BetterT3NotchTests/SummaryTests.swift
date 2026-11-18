@@ -146,6 +146,39 @@ import Testing
         #expect(shell(fields).placement(now: now) == .settled)
     }
 
+    /// Pop-ups and sounds: a settled thread's leftover request is nothing, but the same request
+    /// pops once T3 unsettles the thread, and a settled thread's finish still counts.
+    @Test func aSettledThreadsLeftoverRequestPopsNothing() {
+        let request: [String: Any] = ["id": "turn-item:link-request:t1:a:b", "kind": "user_input",
+                                      "createdAt": "2026-11-03T20:32:46.314Z", "blocking": true]
+        var fields: [String: Any] = ["status": "completed", "pendingRuntimeRequest": request,
+                                     "settledOverride": "settled", "settledAt": "2026-11-13T01:52:32.081Z"]
+        #expect(shell(fields).alertPhase == .other)
+        fields["settledOverride"] = NSNull()
+        #expect(shell(fields).alertPhase == .needsYou)
+        let finished: [String: Any] = ["status": "completed", "settledOverride": "settled",
+                                       "latestRunCompletedAt": "2026-11-16T11:30:00.000Z"]
+        #expect(shell(finished).alertPhase == .completed)
+    }
+
+    /// A link card is answered in T3; the notch says what it asks instead of the last message.
+    @MainActor @Test func aLinkCardSaysWhatItAsks() {
+        let card: [String: Any] = [
+            "id": "turn-item:link-request:t1:a:b", "ordinal": 7, "type": "link_request", "status": "waiting",
+            "reason": "Ship needs to message the Site thread there.", "hint": "kainoas-linux-mba",
+        ]
+        let message: [String: Any] = ["_tag": "Chunk", "requestId": "2",
+                                      "values": [["kind": "snapshot", "projection": ["turnItems": [card]]]]]
+        guard case .chunk(_, let values)? = Incoming.parse(try! JSONSerialization.data(withJSONObject: message)),
+              case .snapshot(let items)? = values.first?.thread, let item = items.first else {
+            Issue.record("didn't parse as a turn-item snapshot")
+            return
+        }
+        let (text, icon) = ThreadStore.describe(item)
+        #expect(text == "Link a machine: Ship needs to message the Site thread there.")
+        #expect(icon == "link")
+    }
+
     @Test func inboxThreadsAreWorkingWaitingOrQuiet() {
         #expect(shell(["status": "running", "activityRunStatus": "running"]).placement(now: now) == .working)
         var asking: [String: Any] = [:]

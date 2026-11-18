@@ -62,7 +62,7 @@ struct T3Thread: Identifiable, Equatable {
     var linesAdded = 0
     var linesRemoved = 0
     var pr: PullRequestInfo?
-    /// On T3's settled shelf (put away by hand, or its PR merged or closed).
+    /// On T3's settled shelf (T3's server settled it: by hand, on merge, or after N days).
     var settled = false
     /// Set when the provider's usage limit stopped the thread.
     var usageLimitResetAt: Date?
@@ -977,7 +977,7 @@ final class ThreadStore: ObservableObject {
 
     private static let quietTypes: Set<String> = ["checkpoint", "user_message", "notification", "system_notice"]
 
-    private static func describe(_ item: TurnItem) -> (String?, String) {
+    static func describe(_ item: TurnItem) -> (String?, String) {
         switch item.type {
         case "command_execution": (item.input.flatMap(firstLine).map { "$ \($0)" }, "terminal")
         case "file_change": (item.fileName.map { "Editing \(($0 as NSString).lastPathComponent)" }, "pencil")
@@ -988,7 +988,7 @@ final class ThreadStore: ObservableObject {
         case "approval_request", "user_input_request", "secret_request":
             (item.question.flatMap(firstLine) ?? "Waiting for your answer", "questionmark.bubble")
         case "link_request":
-            (item.question.flatMap(firstLine).map { "Link a machine: \($0)" } ?? "Wants you to link a machine", "link")
+            (item.reason.flatMap(firstLine).map { "Link a machine: \($0)" } ?? "Wants you to link a machine", "link")
         case "assistant_message":
             // While streaming, the first line grows token by token; don't redraw for each one.
             (item.status == "running" ? "Writing…" : item.text.flatMap(firstLine), "text.bubble")
@@ -1021,11 +1021,7 @@ final class ThreadStore: ObservableObject {
     /// Sounds and pop-ups follow the *run*, not the pill: T3 hides "Completed" once you've
     /// looked at a thread, but a run you're watching finishing still deserves its click.
     private func detectTransitions(_ threads: [ShellThread]) {
-        // A settled thread asks nothing: a request it left behind pops no card and plays no
-        // sound (and an open card goes away when its thread settles). Its finish still counts,
-        // so a done card whose thread settles turns into "Settled".
-        let now = Dictionary(threads.map { ($0.id, $0.settled && $0.phase == .needsYou ? .other : $0.phase) },
-                             uniquingKeysWith: { a, _ in a })
+        let now = Dictionary(threads.map { ($0.id, $0.alertPhase) }, uniquingKeysWith: { a, _ in a })
         // Settling ends T3's watch on a thread's PR, so its news stays quiet here too.
         let prs = Dictionary(threads.compactMap { t in t.settled ? nil : t.pr.map { (t.id, $0) } },
                              uniquingKeysWith: { a, _ in a })
@@ -1545,6 +1541,11 @@ struct ShellThread: Sendable {
         }
         return false
     }
+
+    /// The phase pop-ups and sounds follow. A settled thread asks nothing: a request it left
+    /// behind pops no card and plays no sound (and an open card goes away when its thread
+    /// settles). Its finish still counts, so a done card whose thread settles turns into "Settled".
+    var alertPhase: RunPhase { settled && phase == .needsYou ? .other : phase }
 
     var phase: RunPhase {
         if status.needsYou { return .needsYou }
