@@ -9,6 +9,7 @@
       "bump-patch-for-minor-pre-major": false,
       "draft": true,
       "force-tag-creation": true,
+      "exclude-paths": ["site"],
       "changelog-sections": [
         { "type": "feat", "section": "New" },
         { "type": "fix", "section": "Fixes" },
