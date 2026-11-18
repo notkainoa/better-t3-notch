@@ -29,9 +29,6 @@ final class NotchController {
     /// Window is sized for the largest state; the visible notch is drawn inside it.
     private static let canvas = CGSize(width: 700, height: NotchModel.maxHeight)
 
-    /// While the settings menu is open the cursor leaves the notch; don't collapse under it.
-    var holdOpen = false
-
     init(screen: NSScreen, store: ThreadStore, onSettings: @escaping () -> Void) {
         self.screen = screen
         self.store = store
@@ -199,7 +196,7 @@ final class NotchController {
     }
 
     func collapse() {
-        holdOpen = false
+        model.holdOpen = false
         model.hovering = false
     }
 
@@ -244,7 +241,7 @@ final class NotchController {
             collapseWork = nil
             // Otherwise a click opens it (NotchRootView.mouseDown).
             if Settings.openOnHover, !model.hovering { model.hovering = true }
-        } else if model.hovering, collapseWork == nil, !holdOpen {
+        } else if model.hovering, collapseWork == nil, !model.holdOpen {
             let work = DispatchWorkItem { [weak self] in
                 self?.model.hovering = false
                 self?.collapseWork = nil

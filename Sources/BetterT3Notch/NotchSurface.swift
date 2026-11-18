@@ -111,6 +111,26 @@ final class NotchRootView: NSView {
         model.hovering = true
     }
 
+    /// Right-click anywhere on the notch, open or collapsed: Settings and Quit.
+    override func rightMouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        let s = model.size
+        guard CGRect(x: (bounds.width - s.width) / 2, y: 0, width: s.width, height: s.height).insetBy(dx: -4, dy: -4).contains(p)
+        else { return super.rightMouseDown(with: event) }
+        let menu = NSMenu()
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit Better T3 Notch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        // Tracking runs right here until the menu closes; keep the notch open under it meanwhile.
+        model.holdOpen = true
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        model.holdOpen = false
+    }
+
+    @objc private func openSettings() { model.onSettings() }
+
     override func layout() {
         super.layout()
         applied = nil // canvas changed: re-place everything without animating
