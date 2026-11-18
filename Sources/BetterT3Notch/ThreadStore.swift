@@ -166,6 +166,15 @@ final class ThreadStore: ObservableObject {
         }
     }
 
+    /// The pop-up no longer says what its thread is doing, so it goes away by itself:
+    /// - A "needs you" card, once the request is answered (here or in T3).
+    /// - A finish card, once its thread is running again (a queued follow-up, a message sent
+    ///   from elsewhere). The card reads the live thread, so it would otherwise turn into "Working".
+    static func cardOutlived(_ kind: EventKind, was: RunPhase?, now: RunPhase?) -> Bool {
+        if was == .needsYou, now != .needsYou { return true }
+        return kind != .needsYou && now == .active
+    }
+
     /// A pop-up switch changed: put away a pop-up of a kind that's now turned off.
     func popUpSettingsChanged() {
         if eventId != nil, !Self.popsUp(eventKind) { dismissEvent() }
@@ -1054,8 +1063,7 @@ final class ThreadStore: ObservableObject {
             }
         }
 
-        // The "needs you" card goes away by itself once the request is answered (here or in T3).
-        if let id = eventId, lastPhases[id] == .needsYou, now[id] != .needsYou {
+        if let id = eventId, Self.cardOutlived(eventKind, was: lastPhases[id], now: now[id]) {
             dismissEvent()
         }
 

@@ -161,6 +161,26 @@ import Testing
         #expect(shell(finished).alertPhase == .completed)
     }
 
+    /// A finish card goes once its thread is running again (a queued follow-up starts right
+    /// after the run ends), instead of turning into "Working" for the rest of its seconds.
+    @MainActor @Test func aFinishCardGoesWhenItsThreadRunsAgain() {
+        let restarted: [String: Any] = ["status": "running", "latestRunCompletedAt": "2026-11-16T11:30:00.000Z"]
+        #expect(shell(restarted).alertPhase == .active)
+        for kind in [ThreadStore.EventKind.done, .failed, .forced] {
+            #expect(ThreadStore.cardOutlived(kind, was: .completed, now: .active))
+            #expect(!ThreadStore.cardOutlived(kind, was: .completed, now: .completed))
+        }
+        #expect(ThreadStore.cardOutlived(.failed, was: .failed, now: .active))
+    }
+
+    /// A "needs you" card goes once it's answered, and stays while it's still asking.
+    @MainActor @Test func aNeedsYouCardGoesWhenAnswered() {
+        #expect(ThreadStore.cardOutlived(.needsYou, was: .needsYou, now: .active))
+        #expect(ThreadStore.cardOutlived(.needsYou, was: .needsYou, now: .completed))
+        #expect(!ThreadStore.cardOutlived(.needsYou, was: .needsYou, now: .needsYou))
+        #expect(!ThreadStore.cardOutlived(.needsYou, was: .active, now: .needsYou))
+    }
+
     /// A link card is answered in T3; the notch says what it asks instead of the last message.
     @MainActor @Test func aLinkCardSaysWhatItAsks() {
         let card: [String: Any] = [
